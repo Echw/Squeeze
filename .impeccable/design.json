@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-12T19:03:33Z",
+  "title": "Design System: Squeeze",
+  "extensions": {
+    "colorMeta": {
+      "operational-green": {"role":"primary","displayName":"Operational Green","canonical":"#147453","tonalRamp":["oklch(15% 0.100 164)","oklch(26.4% 0.100 164)","oklch(37.9% 0.100 164)","oklch(49.3% 0.100 164)","oklch(60.7% 0.100 164)","oklch(72.1% 0.100 164)","oklch(83.6% 0.100 164)","oklch(95% 0.100 164)"]},
+      "operational-green-dark": {"role":"primary","displayName":"Deep Operational Green","canonical":"#0d543c","tonalRamp":["oklch(15% 0.078 164.6)","oklch(26.4% 0.078 164.6)","oklch(37.9% 0.078 164.6)","oklch(49.3% 0.078 164.6)","oklch(60.7% 0.078 164.6)","oklch(72.1% 0.078 164.6)","oklch(83.6% 0.078 164.6)","oklch(95% 0.078 164.6)"]},
+      "operational-green-soft": {"role":"primary","displayName":"Soft Operational Green","canonical":"#e4f1eb","tonalRamp":["oklch(15% 0.016 166.7)","oklch(26.4% 0.016 166.7)","oklch(37.9% 0.016 166.7)","oklch(49.3% 0.016 166.7)","oklch(60.7% 0.016 166.7)","oklch(72.1% 0.016 166.7)","oklch(83.6% 0.016 166.7)","oklch(95% 0.016 166.7)"]},
+      "ink": {"role":"neutral","displayName":"Workshop Ink","canonical":"#17211d","tonalRamp":["oklch(15% 0.016 168.5)","oklch(26.4% 0.016 168.5)","oklch(37.9% 0.016 168.5)","oklch(49.3% 0.016 168.5)","oklch(60.7% 0.016 168.5)","oklch(72.1% 0.016 168.5)","oklch(83.6% 0.016 168.5)","oklch(95% 0.016 168.5)"]},
+      "muted-ink": {"role":"neutral","displayName":"Muted Ink","canonical":"#626c67","tonalRamp":["oklch(15% 0.014 164.4)","oklch(26.4% 0.014 164.4)","oklch(37.9% 0.014 164.4)","oklch(49.3% 0.014 164.4)","oklch(60.7% 0.014 164.4)","oklch(72.1% 0.014 164.4)","oklch(83.6% 0.014 164.4)","oklch(95% 0.014 164.4)"]},
+      "paper": {"role":"neutral","displayName":"Warm Paper","canonical":"#f3f1eb","tonalRamp":["oklch(15% 0.008 91.5)","oklch(26.4% 0.008 91.5)","oklch(37.9% 0.008 91.5)","oklch(49.3% 0.008 91.5)","oklch(60.7% 0.008 91.5)","oklch(72.1% 0.008 91.5)","oklch(83.6% 0.008 91.5)","oklch(95% 0.008 91.5)"]},
+      "surface": {"role":"neutral","displayName":"Warm Surface","canonical":"#fffefa","tonalRamp":["oklch(15% 0.005 95.1)","oklch(26.4% 0.005 95.1)","oklch(37.9% 0.005 95.1)","oklch(49.3% 0.005 95.1)","oklch(60.7% 0.005 95.1)","oklch(72.1% 0.005 95.1)","oklch(83.6% 0.005 95.1)","oklch(95% 0.005 95.1)"]},
+      "line": {"role":"neutral","displayName":"Quiet Line","canonical":"#d8dbd5","tonalRamp":["oklch(15% 0.009 128.6)","oklch(26.4% 0.009 128.6)","oklch(37.9% 0.009 128.6)","oklch(49.3% 0.009 128.6)","oklch(60.7% 0.009 128.6)","oklch(72.1% 0.009 128.6)","oklch(83.6% 0.009 128.6)","oklch(95% 0.009 128.6)"]},
+      "danger": {"role":"tertiary","displayName":"Error Brick","canonical":"#a33f36","tonalRamp":["oklch(15% 0.135 28)","oklch(26.4% 0.135 28)","oklch(37.9% 0.135 28)","oklch(49.3% 0.135 28)","oklch(60.7% 0.135 28)","oklch(72.1% 0.135 28)","oklch(83.6% 0.135 28)","oklch(95% 0.135 28)"]},
+      "danger-soft": {"role":"tertiary","displayName":"Error Wash","canonical":"#f8e9e6","tonalRamp":["oklch(15% 0.017 31.1)","oklch(26.4% 0.017 31.1)","oklch(37.9% 0.017 31.1)","oklch(49.3% 0.017 31.1)","oklch(60.7% 0.017 31.1)","oklch(72.1% 0.017 31.1)","oklch(83.6% 0.017 31.1)","oklch(95% 0.017 31.1)"]},
+      "white": {"role":"neutral","displayName":"Clean White","canonical":"#ffffff","tonalRamp":["oklch(15% 0 0)","oklch(26.4% 0 0)","oklch(37.9% 0 0)","oklch(49.3% 0 0)","oklch(60.7% 0 0)","oklch(72.1% 0 0)","oklch(83.6% 0 0)","oklch(95% 0 0)"]}
+    },
+    "typographyMeta": {
+      "display":{"displayName":"Display","purpose":"Dwuwierszowy tytuł pierwszego widoku."},
+      "headline":{"displayName":"Headline","purpose":"Nagłówki głównych obszarów roboczych."},
+      "title":{"displayName":"Title","purpose":"Nazwy plików i tytuły komponentów."},
+      "body":{"displayName":"Body","purpose":"Krótkie objaśnienie celu narzędzia."},
+      "label":{"displayName":"Label","purpose":"Kontrolki, statusy i dane operacyjne."}
+    },
+    "shadows": [
+      {"name":"tool-lift","value":"0 22px 60px rgba(34, 47, 41, .1)","purpose":"Oddzielenie narzędzia od tła."},
+      {"name":"action-lift","value":"0 7px 18px rgba(20, 116, 83, .2)","purpose":"Wzmocnienie głównego działania."},
+      {"name":"dialog-lift","value":"0 30px 90px rgba(18, 25, 22, .3)","purpose":"Oddzielenie dialogu porównania."}
+    ],
+    "motion": [
+      {"name":"ease-emphasized","value":"cubic-bezier(.22, 1, .36, 1)","purpose":"Ruch gałki przełącznika."},
+      {"name":"state-transition","value":"120ms-180ms","purpose":"Krótkie przejścia działania i koloru."},
+      {"name":"reduced-motion","value":".01ms; 1 iteration","purpose":"Praktyczne usunięcie ruchu dla prefers-reduced-motion."}
+    ],
+    "breakpoints":[{"name":"mobile","value":"760px"}]
+  },
+  "components": [
+    {
+      "name":"Primary Button","kind":"button","refersTo":"button-primary","description":"Główne działanie kompresji lub pobierania.",
+      "html":"<button class=\"ds-btn-primary\">Kompresuj</button>",
+      "css":".ds-btn-primary{min-height:40px;padding:0 14px;border:0;border-radius:10px;color:#fff;background:#147453;box-shadow:0 7px 18px rgba(20,116,83,.2);font:720 13px 'Avenir Next',Avenir,'Segoe UI',sans-serif;cursor:pointer;transition:background-color 150ms,transform 120ms}.ds-btn-primary:hover{background:#0d543c}.ds-btn-primary:focus-visible{outline:3px solid rgba(20,116,83,.28);outline-offset:3px}.ds-btn-primary:active{transform:scale(.97)}"
+    },
+    {
+      "name":"Secondary Button","kind":"button","refersTo":"button-secondary","description":"Działanie pomocnicze.",
+      "html":"<button class=\"ds-btn-secondary\">Pobierz</button>",
+      "css":".ds-btn-secondary{min-height:40px;padding:0 14px;border:1px solid #cfd3cd;border-radius:10px;color:#17211d;background:#fff;font:720 13px 'Avenir Next',Avenir,'Segoe UI',sans-serif;cursor:pointer;transition:background-color 150ms,transform 120ms}.ds-btn-secondary:hover{background:#edeee9}.ds-btn-secondary:focus-visible{outline:3px solid rgba(20,116,83,.28);outline-offset:3px}.ds-btn-secondary:active{transform:scale(.97)}"
+    },
+    {
+      "name":"Select Field","kind":"input","refersTo":"select-field","description":"Podstawowe ustawienie kompresji.",
+      "html":"<label class=\"ds-field\"><span>Jakość</span><select><option>Zbalansowana</option></select></label>",
+      "css":".ds-field{display:grid;gap:6px;color:#626c67;font:680 12px 'Avenir Next',Avenir,'Segoe UI',sans-serif}.ds-field select{height:42px;padding:0 34px 0 11px;border:1px solid #cfd3cd;border-radius:10px;color:#17211d;background:#fffefa;font:inherit;font-weight:680}.ds-field select:hover{border-color:#aeb9b3}.ds-field select:focus-visible{outline:3px solid rgba(20,116,83,.28);outline-offset:3px}"
+    },
+    {
+      "name":"Savings Badge","kind":"chip","refersTo":"savings-badge","description":"Korzystna zmiana rozmiaru.",
+      "html":"<span class=\"ds-savings-badge\">−94.6%</span>",
+      "css":".ds-savings-badge{display:inline-flex;padding:3px 7px;border-radius:99px;color:#0d543c;background:#e4f1eb;font:780 11px 'Avenir Next',Avenir,'Segoe UI',sans-serif}"
+    },
+    {
+      "name":"Result Row","kind":"card","refersTo":"result-row","description":"Stabilny wiersz kolejki z wynikiem przed i po.",
+      "html":"<article class=\"ds-result\"><div class=\"ds-preview\"></div><div><strong>obraz.png</strong><p>663.1 KB → <b>35.9 KB</b></p><small>● Gotowe</small></div><button>Pobierz</button></article>",
+      "css":".ds-result{min-height:112px;padding:14px;display:grid;grid-template-columns:66px minmax(0,1fr) auto;gap:16px;align-items:center;border:1px solid #d8dbd5;border-radius:14px;color:#17211d;background:#fffefa;font-family:'Avenir Next',Avenir,'Segoe UI',sans-serif}.ds-preview{width:66px;height:66px;border-radius:10px;background:#e4f1eb}.ds-result p,.ds-result small{color:#626c67;font-size:12px}.ds-result b{color:#17211d}.ds-result button{min-height:40px;padding:0 14px;border:1px solid #cfd3cd;border-radius:10px;background:#fff;font-weight:720}.ds-result button:hover{background:#edeee9}.ds-result button:focus-visible{outline:3px solid rgba(20,116,83,.28);outline-offset:3px}"
+    }
+  ],
+  "narrative": {
+    "northStar":"Spokojne narzędzie warsztatowe",
+    "overview":"Squeeze jest kompaktowym narzędziem operacyjnym. Interfejs skraca drogę od obrazu do pobranego wyniku, a jakość automatyki pokazuje przez konkretne rozmiary przed i po, stan pracy oraz dostępne porównanie. Jasna, ciepła powierzchnia przypomina narzędzie używane codziennie: spokojne, precyzyjne i pozbawione dekoracji, które nie wspierają zadania.\n\nCiemny atrament porządkuje informacje, a zieleń oznacza działanie, gotowość, prywatność i oszczędność. Delikatne linie, tonalne warstwy i jeden miękki poziom cienia oddzielają strukturę bez szkła, gradientów i efektów reklamowych. Ikony należą do jednego systemu cienkich, zaokrąglonych obrysów SVG.",
+    "keyCharacteristics":["Ciepłe, jasne płótno z kremowymi powierzchniami roboczymi.","Atramentowa hierarchia typu i jeden operacyjny zielony akcent.","Wysoka gęstość informacji po dodaniu plików, bez wymiany stabilnych wierszy kolejki.","Krótkie, informacyjne przejścia oraz widoczne stany fokusowe.","Responsywna kompozycja, która zmienia układ w jedną kolumnę przy 760 px."],
+    "rules":[
+      {"name":"The Operational Green Rule","body":"Zieleń oznacza działanie, gotowość, prywatność albo korzystny wynik. Nie służy jako dekoracyjne wypełnienie dużych powierzchni.","section":"colors"},
+      {"name":"The Reserved Error Rule","body":"Czerwień pojawia się wyłącznie wtedy, gdy aplikacja musi zakomunikować błąd lub niepowodzenie.","section":"colors"},
+      {"name":"The One-Family Rule","body":"Zachowuj Avenir Next i istniejące fallbacki dla całego produktu; rolę komunikatu zmieniaj skalą i wagą.","section":"typography"},
+      {"name":"The Numeric Evidence Rule","body":"Rozmiary plików, procenty, czas i wartości suwaków używają cyfr tabelarycznych, gdy zmieniają się w miejscu.","section":"typography"},
+      {"name":"The Stable Queue Rule","body":"Po dodaniu plików dropzone kurczy się z 246 px do 116 px, lecz wiersze wyników nie są wymieniane podczas postępu. Dzięki temu fokus, rozwinięte szczegóły i pozycja użytkownika pozostają stabilne.","section":"layout"},
+      {"name":"The Task-First Viewport Rule","body":"W pierwszym widoku zawsze widać cel, dropzone i podstawowe ustawienia. Parametry silnika pozostają w zwijanym obszarze zaawansowanym.","section":"layout"},
+      {"name":"The Sparse Elevation Rule","body":"Nie dodawaj cienia do zwykłych pól, wierszy i ustawień; ich hierarchię budują powierzchnia, obrys i odstęp.","section":"elevation"},
+      {"name":"The Nested Radius Rule","body":"Wewnętrzny element ma mniejszy promień niż obiekt, który go zawiera, dzięki czemu kolejne warstwy zachowują czytelną geometrię.","section":"shapes"},
+      {"name":"The Pill-by-Meaning Rule","body":"Używaj pełnej pigułki wyłącznie dla małych stanów, przełączników i krótkich wartości; przyciski działań pozostają prostokątne.","section":"shapes"},
+      {"name":"The Visible State Rule","body":"Każdy stan pracy ma widoczny status tekstowy; animowany spinner, kropka koloru i pasek postępu tylko go wspierają.","section":"components"},
+      {"name":"The Outline Icon Rule","body":"Używaj prostych ikon SVG bez wypełnienia, z zaokrąglonymi końcami i spójną grubością obrysu 1.8.","section":"components"}
+    ],
+    "dos":["Do utrzymuj podstawowe ustawienia stale widoczne, a kontrolę ekspercką w zwijanych szczegółach.","Do pokazuj wynik przez konkretne rozmiary przed i po, procent zmiany oraz uczciwy opis stanu.","Do zachowuj jedną zieloną logikę dla działania, gotowości, prywatności i korzystnego wyniku.","Do układaj formularze, wiersze i modal w jedną kolumnę przy 760 px bez poziomego przepełnienia.","Do respektuj prefers-reduced-motion, sprowadzając animacje i przejścia do praktycznie zerowego czasu."],
+    "donts":["Don't używaj gradientów, szkła, dekoracyjnych ilustracji ani wielu kolorów akcentowych.","Don't dodawaj cieni do każdego panelu; zachowaj je dla powłoki narzędzia, głównego działania i dialogu.","Don't zastępuj wiersza kolejki nowym elementem podczas przetwarzania lub ponownego przeliczania.","Don't używaj samego koloru lub animacji jako jedynego nośnika stanu.","Don't zmieniaj FORM user-pinned: compact-operate-v1 na seed ani dopisuj concept-roll."]
+  }
+}

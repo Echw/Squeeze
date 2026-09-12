@@ -1,17 +1,20 @@
 # Squeeze — lokalna inteligentna kompresja obrazów
 
-Squeeze zachowuje format wejściowy (JPEG → JPEG, PNG → PNG), działa lokalnie w
-przeglądarce i nie wysyła plików ani ich nazw do sieci. Repozytorium zawiera jeden
-pipeline używany przez CLI i WebAssembly.
+Squeeze kompresuje JPEG i PNG, opcjonalnie konwertuje je do WebP i działa lokalnie
+w przeglądarce. Nie wysyła plików ani ich nazw do sieci. Kompresja zachowująca
+format korzysta ze wspólnego pipeline'u Rust używanego przez CLI i WebAssembly;
+lokalna konwersja WebP działa przez libwebp w Workerze.
 
 ## Stan v1
 
 - JPEG: adaptacyjne przeszukiwanie jakości i podpróbkowania przez `mozjpeg-rs`,
   SSIMULACRA2 oraz Butteraugli dla finalistów.
-- PNG: OxiPNG lossless w CLI; quantette dla nieprzezroczystych PNG 8-bit w CLI/WASM,
+- PNG: OxiPNG lossless w CLI; ograniczone porównanie wariantów quantette i lossless
+  dla nieprzezroczystych PNG 8-bit w CLI/WASM,
   z bezpiecznym passthrough lossless dla alpha i PNG 16-bit w przeglądarce.
-- Przeglądarka: pojedynczy Worker, transferables, anulowanie przez restart Workera,
-  kolejka wielu plików, pobieranie, ZIP, porównanie before/after i raport JSON.
+- Przeglądarka: autostart z zapamiętywanym ustawieniem, pojedynczy Worker,
+  transferables, anulowanie przez restart Workera, kolejka wielu plików,
+  pobieranie, ZIP, porównanie przed/po, WebP i raport JSON.
 - Prywatność: po załadowaniu aplikacja nie potrzebuje sieci. CSP blokuje połączenia.
 
 Jpegli nie jest zależnością produkcyjną. Dostępny wrapper Rust ma licencję AGPL/
@@ -56,17 +59,16 @@ Jeżeli któreś z poleceń zwraca komunikat „command not found”, zamknij i 
 terminal ponownie. Na Windows warto upewnić się, że terminal został otwarty po
 instalacji Rust; instalator dodaje katalog z narzędziami do `PATH`.
 
-### 2. Pobierz zależności frontendu
+### 2. Pobierz zależności
 
 W katalogu projektu uruchom:
 
 ```sh
-npm --prefix web ci
+npm ci
 ```
 
-Polecenie korzysta z zapisanego lockfile, więc instaluje dokładnie zestaw
-zależności przewidziany dla projektu. Wykonuj je po świeżym sklonowaniu projektu
-albo gdy zmieni się `web/package-lock.json`.
+Repozytorium używa npm workspaces i jednego lockfile w katalogu głównym. Polecenie
+instaluje dokładny zestaw zależności frontendu i lokalnego kodeka WebP.
 
 ### 3. Uruchom aplikację
 
@@ -92,7 +94,9 @@ Gdy środowisko jest już przygotowane, przy kolejnych uruchomieniach wystarczy:
 npm run dev
 ```
 
-Do jednorazowego ręcznego zbudowania silnika użyj `npm run build:wasm`.
+Do pracy wyłącznie nad układem użyj `npm run dev:web`; wymaga to istniejącego,
+aktualnego artefaktu WASM. Do jednorazowego ręcznego zbudowania silnika użyj
+`npm run build:wasm`.
 
 CLI:
 
@@ -111,8 +115,8 @@ Przed zmianą kodu lub przed przekazaniem zmian możesz uruchomić pełną walid
 cargo fmt --all -- --check
 cargo test --workspace
 cargo deny check
-npm --prefix web ci
-npm --prefix web run check
+npm ci
+npm run check
 ```
 
 Jeśli firmowa polityka Windows Application Control blokuje `rustc.exe`, kompilację
