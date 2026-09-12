@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { optionsFor } from "./compression-queue";
 
 describe("optionsFor", () => {
-  it("passes only a named profile and stable engine limits", () => {
+  it("passes the default Auto effort, explicit output format and stable engine limits", () => {
     expect(optionsFor("balanced")).toEqual({
       profile: "balanced",
+      searchEffort: "auto",
+      method: "auto",
       outputFormat: "preserve",
       metadata: "stripPrivate",
       limits: {
@@ -14,5 +16,13 @@ describe("optionsFor", () => {
       },
     });
   });
-});
 
+  it("keeps the profile threshold separate from Detailed search effort", () => {
+    expect(optionsFor("maximumQuality", "detailed", "palette")).toMatchObject({
+      profile: "maximumQuality",
+      searchEffort: "detailed",
+      method: "palette",
+      outputFormat: "preserve",
+    });
+  });
+});

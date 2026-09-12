@@ -20,6 +20,7 @@ interface OptimizerWasm {
 
 let modulePromise: Promise<OptimizerWasm> | undefined;
 let activeJobId: string | undefined;
+let activeAttempt: number | undefined;
 
 // Start the static WASM fetch with the initial application load. Adding an image
 // never triggers a request containing image data or its name.
@@ -28,16 +29,17 @@ void loadWasm().catch(() => undefined);
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   if (request.version !== WORKER_API_VERSION) {
-    postError("unknown", "WORKER_API_MISMATCH", "Nieobsługiwana wersja protokołu.", false);
+    postError("unknown", -1, "WORKER_API_MISMATCH", "Nieobsługiwana wersja protokołu.", false);
     return;
   }
   if (request.type === "cancel") {
     if (request.jobId === activeJobId) {
-      post({ version: 1, type: "cancelled", jobId: request.jobId });
+      post({ version: WORKER_API_VERSION, type: "cancelled", jobId: request.jobId, attempt: request.attempt });
     }
     return;
   }
   activeJobId = request.jobId;
+  activeAttempt = request.attempt;
   try {
     const wasm = await loadWasm();
     const result = wasm.optimize_image(
@@ -49,7 +51,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           candidate?: number;
           total?: number;
         };
-        post({ version: 1, type: "progress", jobId: request.jobId, ...progress });
+        if (activeJobId !== request.jobId || activeAttempt !== request.attempt) return;
+        post({ version: WORKER_API_VERSION, type: "progress", jobId: request.jobId, attempt: request.attempt, ...progress });
       },
     );
     const output = result.take_bytes();
@@ -59,9 +62,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     ) as ArrayBuffer;
     post(
       {
-        version: 1,
+        version: WORKER_API_VERSION,
         type: "complete",
         jobId: request.jobId,
+        attempt: request.attempt,
         result: JSON.parse(result.report_json) as OptimizationReport,
         buffer: transferable,
       },
@@ -69,9 +73,10 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     );
   } catch (error) {
     const parsed = parseError(error);
-    postError(request.jobId, parsed.code, parsed.message, parsed.recoverable);
+    postError(request.jobId, request.attempt, parsed.code, parsed.message, parsed.recoverable);
   } finally {
     activeJobId = undefined;
+    activeAttempt = undefined;
   }
 };
 
@@ -119,11 +124,12 @@ function post(message: WorkerResponse, transfer: Transferable[] = []): void {
 
 function postError(
   jobId: string,
+  attempt: number,
   code: string,
   message: string,
   recoverable: boolean,
 ): void {
-  post({ version: 1, type: "error", jobId, code, message, recoverable });
+  post({ version: WORKER_API_VERSION, type: "error", jobId, attempt, code, message, recoverable });
 }
 
 export {};

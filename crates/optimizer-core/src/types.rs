@@ -15,6 +15,28 @@ pub enum CompressionProfile {
 pub enum OutputFormat {
     #[default]
     Preserve,
+    Webp,
+    Avif,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchEffort {
+    #[default]
+    Auto,
+    Detailed,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum CompressionMethod {
+    /// Evaluate every compatible strategy and keep the smallest safe result.
+    #[default]
+    Auto,
+    /// Only recompress the existing PNG stream; decoded pixels never change.
+    Lossless,
+    /// Only try indexed-palette candidates under the selected quality threshold.
+    Palette,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -47,6 +69,8 @@ impl Default for ResourceLimits {
 #[serde(default, rename_all = "camelCase")]
 pub struct OptimizeOptions {
     pub profile: CompressionProfile,
+    pub search_effort: SearchEffort,
+    pub method: CompressionMethod,
     pub output_format: OutputFormat,
     pub metadata: MetadataPolicy,
     pub limits: ResourceLimits,
@@ -56,6 +80,8 @@ impl Default for OptimizeOptions {
     fn default() -> Self {
         Self {
             profile: CompressionProfile::Balanced,
+            search_effort: SearchEffort::Auto,
+            method: CompressionMethod::Auto,
             output_format: OutputFormat::Preserve,
             metadata: MetadataPolicy::StripPrivate,
             limits: ResourceLimits::default(),
@@ -156,6 +182,7 @@ pub struct SelectedStrategy {
 #[serde(rename_all = "camelCase")]
 pub struct OptimizationReport {
     pub format: ImageFormat,
+    pub output_format: ImageFormat,
     pub width: u32,
     pub height: u32,
     pub original_size: usize,
@@ -184,6 +211,8 @@ pub enum OptimizeError {
     Cancelled,
     #[error("unsupported format; only JPEG and PNG are accepted")]
     UnsupportedFormat,
+    #[error("requested output format is not built into this engine")]
+    UnsupportedOutputFormat,
     #[error("animated PNG is not supported")]
     AnimatedPng,
     #[error("input exceeds the {limit} byte limit")]
@@ -210,27 +239,28 @@ pub(crate) struct ProfileRules {
     pub start_quality: u8,
 }
 
-pub(crate) const PROFILE_SET_VERSION: u16 = 1;
+pub(crate) const PROFILE_SET_VERSION: u16 = 2;
 
 impl CompressionProfile {
-    pub(crate) fn rules(self) -> Option<ProfileRules> {
+    pub(crate) fn rules(self, effort: SearchEffort) -> Option<ProfileRules> {
+        let detailed = matches!(effort, SearchEffort::Detailed);
         match self {
             Self::MaximumQuality => Some(ProfileRules {
                 ssimulacra2: 99.0,
                 butteraugli: 1.0,
-                candidate_budget: 8,
+                candidate_budget: if detailed { 24 } else { 8 },
                 start_quality: 96,
             }),
             Self::Balanced => Some(ProfileRules {
                 ssimulacra2: 97.0,
                 butteraugli: 1.5,
-                candidate_budget: 12,
+                candidate_budget: if detailed { 36 } else { 12 },
                 start_quality: 92,
             }),
             Self::MaximumCompression => Some(ProfileRules {
                 ssimulacra2: 93.0,
                 butteraugli: 2.0,
-                candidate_budget: 16,
+                candidate_budget: if detailed { 48 } else { 16 },
                 start_quality: 86,
             }),
             Self::Lossless => None,

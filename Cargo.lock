@@ -601,6 +601,8 @@ name = "optimizer-core"
 version = "0.1.0"
 dependencies = [
  "butteraugli",
+ "crc32fast",
+ "flate2",
  "image",
  "mozjpeg-rs",
  "oxipng",

@@ -1,10 +1,18 @@
-export const WORKER_API_VERSION = 1 as const;
+export const WORKER_API_VERSION = 2 as const;
 
 export type CompressionProfile =
   | "maximumQuality"
   | "balanced"
   | "maximumCompression"
   | "lossless";
+
+export type SearchEffort = "auto" | "detailed";
+
+/** The strategy is explicit: Auto may select the winner, other values run one PNG path only. */
+export type CompressionMethod = "auto" | "lossless" | "palette";
+
+/** Output codecs are explicit so a future encoder can never silently change a file format. */
+export type OutputFormat = "preserve" | "webp" | "avif";
 
 export type ProgressStage =
   | "decoding"
@@ -15,7 +23,9 @@ export type ProgressStage =
 
 export interface OptimizationOptions {
   profile: CompressionProfile;
-  outputFormat: "preserve";
+  searchEffort: SearchEffort;
+  method: CompressionMethod;
+  outputFormat: OutputFormat;
   metadata: "stripPrivate" | "preserveAll";
   limits: {
     maxInputBytes: number;
@@ -26,6 +36,7 @@ export interface OptimizationOptions {
 
 export interface OptimizationReport {
   format: "jpeg" | "png";
+  outputFormat: "jpeg" | "png" | "webp" | "avif";
   width: number;
   height: number;
   originalSize: number;
@@ -63,39 +74,43 @@ export interface OptimizationReport {
 
 export type WorkerRequest =
   | {
-      version: 1;
+      version: 2;
       type: "compress";
       jobId: string;
+      attempt: number;
       buffer: ArrayBuffer;
       options: OptimizationOptions;
     }
-  | { version: 1; type: "cancel"; jobId: string };
+  | { version: 2; type: "cancel"; jobId: string; attempt: number };
 
 export type WorkerResponse =
   | {
-      version: 1;
+      version: 2;
       type: "progress";
       jobId: string;
+      attempt: number;
       stage: ProgressStage;
       candidate?: number;
       total?: number;
     }
   | {
-      version: 1;
+      version: 2;
       type: "complete";
       jobId: string;
+      attempt: number;
       result: OptimizationReport;
       buffer: ArrayBuffer;
     }
   | {
-      version: 1;
+      version: 2;
       type: "error";
       jobId: string;
+      attempt: number;
       code: string;
       message: string;
       recoverable: boolean;
     }
-  | { version: 1; type: "cancelled"; jobId: string };
+  | { version: 2; type: "cancelled"; jobId: string; attempt: number };
 
 export type JobStatus = "queued" | "processing" | "complete" | "error" | "cancelled";
 
@@ -103,6 +118,12 @@ export interface CompressionJob {
   id: string;
   file: File;
   profile: CompressionProfile;
+  searchEffort: SearchEffort;
+  method: CompressionMethod;
+  outputFormat: OutputFormat;
+  /** Increments for every run, preventing a late worker response from changing a retry. */
+  attempt: number;
+  sourceJobId?: string;
   status: JobStatus;
   stage?: ProgressStage;
   candidate?: number;
@@ -111,4 +132,3 @@ export interface CompressionJob {
   output?: Uint8Array;
   error?: string;
 }
-

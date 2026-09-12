@@ -7,15 +7,16 @@ use crate::{
     types::*,
 };
 
-struct Candidate {
+struct Winner {
     bytes: Vec<u8>,
-    decoded: RgbaImage,
     quality: u8,
     subsampling: Subsampling,
     ssimulacra2: f64,
+    butteraugli: f64,
     progressive: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn optimize_jpeg(
     input: &[u8],
     reference: RgbaImage,
@@ -45,7 +46,10 @@ pub(crate) fn optimize_jpeg(
         ));
     }
 
-    let rules = options.profile.rules().expect("lossy profile has rules");
+    let rules = options
+        .profile
+        .rules(options.search_effort)
+        .expect("lossy profile has rules");
     let metadata = jpeg_metadata::extract(input)?;
     let rgb = rgba_to_rgb(&reference);
     let subsampling_order = match analysis.kind {
@@ -55,9 +59,8 @@ pub(crate) fn optimize_jpeg(
         }
         ContentKind::Mixed => [Subsampling::S422, Subsampling::S444, Subsampling::S420],
     };
-    let qualities = quality_schedule(rules.start_quality);
     let mut candidates_tested = 0_u16;
-    let mut passing = Vec::new();
+    let mut winner: Option<Winner> = None;
 
     progress.report(ProgressEvent {
         stage: ProgressStage::Searching,
@@ -67,11 +70,7 @@ pub(crate) fn optimize_jpeg(
     for (configuration_index, subsampling) in subsampling_order.into_iter().enumerate() {
         let configuration_budget =
             budget_for_configuration(rules.candidate_budget, configuration_index as u16, 3);
-        for quality in qualities
-            .iter()
-            .copied()
-            .take(configuration_budget as usize)
-        {
+        for quality in quality_schedule(rules.start_quality, configuration_budget) {
             if candidates_tested >= rules.candidate_budget {
                 break;
             }
@@ -100,81 +99,66 @@ pub(crate) fn optimize_jpeg(
                 total: Some(rules.candidate_budget),
             });
             let score = ssimulacra2_score(&reference, &decoded)?;
-            if score >= rules.ssimulacra2 {
-                passing.push(Candidate {
-                    bytes,
-                    decoded,
-                    quality,
-                    subsampling,
-                    ssimulacra2: score,
-                    progressive: false,
-                });
+            if score < rules.ssimulacra2 {
+                continue;
+            }
+            let butteraugli = butteraugli_score(&reference, &decoded)?;
+            if butteraugli > rules.butteraugli {
+                continue;
+            }
+            let mut candidate = Winner {
+                bytes,
+                quality,
+                subsampling,
+                ssimulacra2: score,
+                butteraugli,
+                progressive: false,
+            };
+            let progressive_bytes = encode(
+                &rgb,
+                width,
+                height,
+                quality,
+                subsampling,
+                true,
+                &metadata,
+                options.metadata,
+                options.limits,
+            )?;
+            if progressive_bytes.len() < candidate.bytes.len() {
+                let progressive_decoded = decode_candidate(&progressive_bytes)?;
+                let progressive_ssim = ssimulacra2_score(&reference, &progressive_decoded)?;
+                let progressive_butteraugli = butteraugli_score(&reference, &progressive_decoded)?;
+                if progressive_ssim >= rules.ssimulacra2
+                    && progressive_butteraugli <= rules.butteraugli
+                {
+                    candidate.bytes = progressive_bytes;
+                    candidate.ssimulacra2 = progressive_ssim;
+                    candidate.butteraugli = progressive_butteraugli;
+                    candidate.progressive = true;
+                }
+            }
+            if winner
+                .as_ref()
+                .is_none_or(|best| candidate.bytes.len() < best.bytes.len())
+            {
+                winner = Some(candidate);
             }
         }
     }
-
-    if passing.is_empty() {
-        return Ok(passthrough(
-            input,
-            width,
-            height,
-            analysis,
-            vec!["Żaden kandydat JPEG nie przeszedł progu SSIMULACRA2.".into()],
-            "already-optimized",
-        ));
-    }
-
-    passing.sort_by_key(|candidate| candidate.bytes.len());
-    passing.truncate(3);
     progress.report(ProgressEvent {
         stage: ProgressStage::Finalizing,
         candidate: None,
         total: None,
     });
-
-    let mut finalists = Vec::new();
-    for mut candidate in passing {
-        check_cancelled(cancellation)?;
-        let butteraugli = butteraugli_score(&reference, &candidate.decoded)?;
-        if butteraugli > rules.butteraugli {
-            continue;
-        }
-        let progressive_bytes = encode(
-            &rgb,
-            width,
-            height,
-            candidate.quality,
-            candidate.subsampling,
-            true,
-            &metadata,
-            options.metadata,
-            options.limits,
-        )?;
-        if progressive_bytes.len() < candidate.bytes.len() {
-            let progressive_decoded = decode_candidate(&progressive_bytes)?;
-            let progressive_ssim = ssimulacra2_score(&reference, &progressive_decoded)?;
-            let progressive_butteraugli = butteraugli_score(&reference, &progressive_decoded)?;
-            if progressive_ssim >= rules.ssimulacra2 && progressive_butteraugli <= rules.butteraugli
-            {
-                candidate.bytes = progressive_bytes;
-                candidate.decoded = progressive_decoded;
-                candidate.ssimulacra2 = progressive_ssim;
-                candidate.progressive = true;
-                finalists.push((candidate, progressive_butteraugli));
-                continue;
-            }
-        }
-        finalists.push((candidate, butteraugli));
-    }
-    finalists.sort_by_key(|(candidate, _)| candidate.bytes.len());
-    let Some((winner, butteraugli)) = finalists.into_iter().next() else {
+    let Some(winner) = winner else {
         return Ok(passthrough(
             input,
             width,
             height,
             analysis,
-            vec!["Finaliści JPEG nie przeszli guardraila Butteraugli.".into()],
-            "already-optimized",
+            vec!["Nie znaleziono mniejszego JPEG spełniającego oba progi jakości.".into()],
+            "no-smaller-safe-candidate",
         ));
     };
     if winner.bytes.len() >= input.len() {
@@ -183,8 +167,8 @@ pub(crate) fn optimize_jpeg(
             width,
             height,
             analysis,
-            vec!["Oryginał jest mniejszy od wszystkich poprawnych kandydatów.".into()],
-            "already-optimized",
+            vec!["Nie znaleziono mniejszego JPEG spełniającego oba progi jakości.".into()],
+            "no-smaller-safe-candidate",
         ));
     }
 
@@ -194,6 +178,7 @@ pub(crate) fn optimize_jpeg(
         output: winner.bytes,
         report: OptimizationReport {
             format: ImageFormat::Jpeg,
+            output_format: ImageFormat::Jpeg,
             width,
             height,
             original_size: input.len(),
@@ -202,7 +187,7 @@ pub(crate) fn optimize_jpeg(
             saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
             metrics: QualityMetrics {
                 ssimulacra2: Some(winner.ssimulacra2),
-                butteraugli: Some(butteraugli),
+                butteraugli: Some(winner.butteraugli),
             },
             strategy: SelectedStrategy {
                 encoder: "mozjpeg-rs".into(),
@@ -223,12 +208,29 @@ pub(crate) fn optimize_jpeg(
     })
 }
 
-fn quality_schedule(start: u8) -> Vec<u8> {
-    let mut values = vec![start];
-    for delta in [12, 24, 18, 15, 9, 6, 3, 1] {
-        values.push(start.saturating_sub(delta).max(20));
+fn quality_schedule(start: u8, budget: u16) -> Vec<u8> {
+    // Coarse samples establish the viable range. Detailed mode receives a larger
+    // budget and therefore also evaluates the neighbouring values. We deliberately
+    // retain every value: encoder results and perceptual metrics are not monotonic.
+    let coarse = [0, 16, 32, 48, 64, 72];
+    let mut values = coarse
+        .into_iter()
+        .map(|delta| start.saturating_sub(delta).max(20))
+        .collect::<Vec<_>>();
+    values.dedup();
+    if values.len() >= budget as usize {
+        values.truncate(budget as usize);
+        return values;
+    }
+    for center in coarse.into_iter().skip(1) {
+        let center = start.saturating_sub(center).max(20);
+        for delta in [4, 8] {
+            values.push(center.saturating_add(delta).min(start));
+            values.push(center.saturating_sub(delta).max(20));
+        }
     }
     values.dedup();
+    values.truncate(budget as usize);
     values
 }
 
@@ -267,12 +269,12 @@ fn encode(
     if let Some(icc) = &metadata.icc {
         encoder = encoder.icc_profile(icc.clone());
     }
-    if metadata_policy == MetadataPolicy::PreserveAll {
-        if let Some(exif) = &metadata.exif {
-            let mut normalized = exif.clone();
-            let _ = Orientation::remove_from_exif_chunk(&mut normalized);
-            encoder = encoder.exif_data(normalized);
-        }
+    if metadata_policy == MetadataPolicy::PreserveAll
+        && let Some(exif) = &metadata.exif
+    {
+        let mut normalized = exif.clone();
+        let _ = Orientation::remove_from_exif_chunk(&mut normalized);
+        encoder = encoder.exif_data(normalized);
     }
     encoder
         .encode_rgb(rgb, width, height)
@@ -314,6 +316,7 @@ fn passthrough(
         output: input.to_vec(),
         report: OptimizationReport {
             format: ImageFormat::Jpeg,
+            output_format: ImageFormat::Jpeg,
             width,
             height,
             original_size: input.len(),
@@ -359,11 +362,12 @@ mod tests {
 
     #[test]
     fn non_monotonic_samples_are_not_skipped() {
-        let schedule = quality_schedule(92);
-        assert_eq!(&schedule[..4], &[92, 80, 68, 74]);
-        // Q68 can fail while Q74 passes; both remain explicit samples rather
+        let schedule = quality_schedule(92, 12);
+        assert!(schedule.contains(&76));
+        assert!(schedule.contains(&80));
+        // Q76 can fail while Q80 passes; both remain explicit samples rather
         // than relying on monotonicity between encoder results.
-        let samples = [(92, true), (80, true), (68, false), (74, true)];
+        let samples = [(92, true), (80, true), (76, false), (84, true)];
         assert_eq!(samples.iter().filter(|(_, passes)| *passes).count(), 3);
     }
 }

@@ -1,40 +1,75 @@
 import type {
   CompressionJob,
+  CompressionMethod,
   CompressionProfile,
   OptimizationOptions,
+  OutputFormat,
+  SearchEffort,
   WorkerRequest,
   WorkerResponse,
 } from "../types";
+import { WORKER_API_VERSION } from "../types";
 
-type Listener = (jobs: readonly CompressionJob[]) => void;
+type Listener = (jobs: readonly CompressionJob[], paused: boolean) => void;
 
+export interface QueueSettings {
+  profile: CompressionProfile;
+  searchEffort: SearchEffort;
+  method: CompressionMethod;
+  outputFormat?: OutputFormat;
+}
+
+export interface AddResult {
+  accepted: number;
+  rejected: File[];
+}
+
+/** A deliberately single-worker queue: image encoders compete for a lot of memory. */
 export class CompressionQueue {
   #jobs: CompressionJob[] = [];
   #worker = this.#createWorker();
   #activeId?: string;
+  #paused = false;
   #listeners = new Set<Listener>();
+  #previewUrls = new Map<string, string>();
 
   subscribe(listener: Listener): () => void {
     this.#listeners.add(listener);
-    listener(this.#jobs);
+    listener(this.#jobs, this.#paused);
     return () => this.#listeners.delete(listener);
   }
 
-  add(files: Iterable<File>, profile: CompressionProfile): void {
+  add(files: Iterable<File>, settings: QueueSettings, sourceJobId?: string): AddResult {
+    const rejected: File[] = [];
+    let accepted = 0;
     for (const file of files) {
-      if (!isSupported(file)) continue;
-      this.#jobs.push({
-        id: crypto.randomUUID(),
-        file,
-        profile,
-        status: "queued",
-      });
+      if (!isSupported(file)) {
+        rejected.push(file);
+        continue;
+      }
+      accepted += 1;
+      this.#jobs.push(this.#newJob(file, settings, sourceJobId));
     }
     this.#emit();
     void this.#pump();
+    return { accepted, rejected };
+  }
+
+  rerun(id: string, searchEffort: SearchEffort, method = this.#find(id)?.method ?? "auto"): void {
+    const job = this.#find(id);
+    if (!job) return;
+    this.add([job.file], { profile: job.profile, searchEffort, method, outputFormat: job.outputFormat }, job.id);
+  }
+
+  togglePaused(): void {
+    this.#paused = !this.#paused;
+    this.#emit();
+    if (!this.#paused) void this.#pump();
   }
 
   clearCompleted(): void {
+    const removable = this.#jobs.filter((job) => ["complete", "cancelled", "error"].includes(job.status));
+    for (const job of removable) this.#revokePreview(job.id);
     this.#jobs = this.#jobs.filter((job) => !["complete", "cancelled", "error"].includes(job.status));
     this.#emit();
   }
@@ -42,6 +77,7 @@ export class CompressionQueue {
   remove(id: string): void {
     if (this.#activeId === id) this.cancel(id);
     this.#jobs = this.#jobs.filter((job) => job.id !== id);
+    this.#revokePreview(id);
     this.#emit();
   }
 
@@ -50,6 +86,7 @@ export class CompressionQueue {
     if (!job || !["queued", "processing"].includes(job.status)) return;
     job.status = "cancelled";
     job.stage = undefined;
+    job.attempt += 1;
     if (this.#activeId === id) {
       this.#worker.terminate();
       this.#activeId = undefined;
@@ -64,8 +101,40 @@ export class CompressionQueue {
     if (!job || !["error", "cancelled"].includes(job.status)) return;
     job.status = "queued";
     job.error = undefined;
+    job.report = undefined;
+    job.output = undefined;
+    job.attempt += 1;
     this.#emit();
     void this.#pump();
+  }
+
+  previewUrl(job: CompressionJob): string {
+    let url = this.#previewUrls.get(job.id);
+    if (!url) {
+      url = URL.createObjectURL(job.file);
+      this.#previewUrls.set(job.id, url);
+    }
+    return url;
+  }
+
+  dispose(): void {
+    this.#worker.terminate();
+    for (const url of this.#previewUrls.values()) URL.revokeObjectURL(url);
+    this.#previewUrls.clear();
+  }
+
+  #newJob(file: File, settings: QueueSettings, sourceJobId?: string): CompressionJob {
+    return {
+      id: crypto.randomUUID(),
+      file,
+      profile: settings.profile,
+      searchEffort: settings.searchEffort,
+      method: isPng(file) ? settings.method : "auto",
+      outputFormat: settings.outputFormat ?? "preserve",
+      attempt: 0,
+      sourceJobId,
+      status: "queued",
+    };
   }
 
   #createWorker(): Worker {
@@ -90,25 +159,28 @@ export class CompressionQueue {
   }
 
   async #pump(): Promise<void> {
-    if (this.#activeId) return;
+    if (this.#paused || this.#activeId) return;
     const job = this.#jobs.find((candidate) => candidate.status === "queued");
     if (!job) return;
     this.#activeId = job.id;
     job.status = "processing";
     job.stage = "decoding";
+    const attempt = job.attempt;
     this.#emit();
     try {
       const buffer = await job.file.arrayBuffer();
-      if (job.status !== "processing" || this.#activeId !== job.id) return;
+      if (job.status !== "processing" || this.#activeId !== job.id || job.attempt !== attempt) return;
       const request: WorkerRequest = {
-        version: 1,
+        version: WORKER_API_VERSION,
         type: "compress",
         jobId: job.id,
+        attempt,
         buffer,
-        options: optionsFor(job.profile),
+        options: optionsFor(job.profile, job.searchEffort, job.method, job.outputFormat),
       };
       this.#worker.postMessage(request, [buffer]);
     } catch (error) {
+      if (job.attempt !== attempt) return;
       job.status = "error";
       job.error = error instanceof Error ? error.message : String(error);
       this.#activeId = undefined;
@@ -118,9 +190,9 @@ export class CompressionQueue {
   }
 
   #onMessage(message: WorkerResponse): void {
-    if (message.version !== 1) return;
+    if (message.version !== WORKER_API_VERSION) return;
     const job = this.#find(message.jobId);
-    if (!job) return;
+    if (!job || job.attempt !== message.attempt) return;
     if (message.type === "progress") {
       job.stage = message.stage;
       job.candidate = message.candidate;
@@ -148,15 +220,28 @@ export class CompressionQueue {
     return this.#jobs.find((job) => job.id === id);
   }
 
+  #revokePreview(id: string): void {
+    const url = this.#previewUrls.get(id);
+    if (url) URL.revokeObjectURL(url);
+    this.#previewUrls.delete(id);
+  }
+
   #emit(): void {
-    for (const listener of this.#listeners) listener(this.#jobs);
+    for (const listener of this.#listeners) listener(this.#jobs, this.#paused);
   }
 }
 
-export function optionsFor(profile: CompressionProfile): OptimizationOptions {
+export function optionsFor(
+  profile: CompressionProfile,
+  searchEffort: SearchEffort = "auto",
+  method: CompressionMethod = "auto",
+  outputFormat: OutputFormat = "preserve",
+): OptimizationOptions {
   return {
     profile,
-    outputFormat: "preserve",
+    searchEffort,
+    method,
+    outputFormat,
     metadata: "stripPrivate",
     limits: {
       maxInputBytes: 100 * 1024 * 1024,
@@ -168,4 +253,8 @@ export function optionsFor(profile: CompressionProfile): OptimizationOptions {
 
 function isSupported(file: File): boolean {
   return /\.(?:jpe?g|png)$/i.test(file.name) && (!file.type || ["image/jpeg", "image/png"].includes(file.type));
+}
+
+function isPng(file: File): boolean {
+  return file.type === "image/png" || /\.png$/i.test(file.name);
 }

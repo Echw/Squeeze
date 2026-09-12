@@ -7,6 +7,8 @@ rust-version.workspace = true
 
 [dependencies]
 butteraugli.workspace = true
+crc32fast.workspace = true
+flate2.workspace = true
 image.workspace = true
 mozjpeg-rs.workspace = true
 png.workspace = true

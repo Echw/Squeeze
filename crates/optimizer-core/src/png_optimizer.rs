@@ -1,5 +1,7 @@
-use std::io::Cursor;
+use std::io::{Cursor, Read, Write};
 
+use crc32fast::Hasher;
+use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use image::{DynamicImage, GenericImageView, RgbImage, RgbaImage};
 use quantette::{ImageBuf, PaletteSize, Pipeline, QuantizeMethod, dither::FloydSteinberg};
 
@@ -9,14 +11,15 @@ use crate::{
     types::*,
 };
 
-struct PngCandidate {
+struct PngWinner {
     bytes: Vec<u8>,
-    decoded: RgbaImage,
     colors: u16,
     dithered: bool,
     ssimulacra2: f64,
+    butteraugli: f64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn optimize_png(
     input: &[u8],
     reference: RgbaImage,
@@ -28,7 +31,8 @@ pub(crate) fn optimize_png(
     cancellation: &dyn CancellationToken,
 ) -> Result<OptimizationResult, OptimizeError> {
     let bit_depth = input.get(24).copied().unwrap_or(8);
-    let force_lossless = options.profile == CompressionProfile::Lossless
+    let force_lossless = options.method == CompressionMethod::Lossless
+        || options.profile == CompressionProfile::Lossless
         || bit_depth == 16
         || analysis.has_alpha
         || has_color_management_chunks(input);
@@ -51,19 +55,33 @@ pub(crate) fn optimize_png(
                 );
             }
         }
+        if options.method == CompressionMethod::Palette {
+            return Ok(passthrough(
+                input,
+                width,
+                height,
+                analysis,
+                0,
+                vec!["Metoda paletowa nie obsługuje bez utraty danych PNG z alpha, 16-bit lub osadzonym kolorem; zachowano oryginał.".into()],
+            ));
+        }
         return optimize_lossless(
             input,
             width,
             height,
             analysis,
             warnings,
+            1,
             progress,
             cancellation,
             options.limits,
         );
     }
 
-    let rules = options.profile.rules().expect("lossy profile has rules");
+    let rules = options
+        .profile
+        .rules(options.search_effort)
+        .expect("lossy profile has rules");
     let rgb = RgbImage::from_fn(width, height, |x, y| {
         let pixel = reference.get_pixel(x, y);
         image::Rgb([pixel[0], pixel[1], pixel[2]])
@@ -71,8 +89,8 @@ pub(crate) fn optimize_png(
     let quantette_image =
         ImageBuf::try_from(rgb).map_err(|error| OptimizeError::Encode(error.to_string()))?;
     let palette_sizes = palette_schedule(analysis.estimated_colors);
-    let mut candidates = Vec::new();
     let mut candidates_tested = 0_u16;
+    let mut winner: Option<PngWinner> = None;
 
     progress.report(ProgressEvent {
         stage: ProgressStage::Searching,
@@ -112,54 +130,77 @@ pub(crate) fn optimize_png(
                 total: Some(rules.candidate_budget),
             });
             let score = ssimulacra2_score(&reference, &decoded)?;
-            if score >= rules.ssimulacra2 {
-                candidates.push(PngCandidate {
-                    bytes,
-                    decoded,
-                    colors,
-                    dithered,
-                    ssimulacra2: score,
-                });
+            if score < rules.ssimulacra2 {
+                continue;
+            }
+            let butteraugli = butteraugli_score(&reference, &decoded)?;
+            if butteraugli > rules.butteraugli {
+                continue;
+            }
+            let optimized = smallest_oxipng(&bytes, options.limits)?;
+            let optimized_decoded = decode_png(&optimized)?;
+            let final_ssim = ssimulacra2_score(&reference, &optimized_decoded)?;
+            let final_butteraugli = butteraugli_score(&reference, &optimized_decoded)?;
+            if final_ssim < rules.ssimulacra2 || final_butteraugli > rules.butteraugli {
+                continue;
+            }
+            let candidate = PngWinner {
+                bytes: optimized,
+                colors,
+                dithered,
+                ssimulacra2: final_ssim,
+                butteraugli: final_butteraugli,
+            };
+            if winner
+                .as_ref()
+                .is_none_or(|best| candidate.bytes.len() < best.bytes.len())
+            {
+                winner = Some(candidate);
             }
         }
     }
-    candidates.sort_by_key(|candidate| candidate.bytes.len());
-    candidates.truncate(3);
-
     progress.report(ProgressEvent {
         stage: ProgressStage::Finalizing,
         candidate: None,
         total: None,
     });
-    let mut finalists = Vec::new();
-    for mut candidate in candidates {
-        check_cancelled(cancellation)?;
-        let butteraugli = butteraugli_score(&reference, &candidate.decoded)?;
-        if butteraugli > rules.butteraugli {
-            continue;
+    let lossless = smallest_oxipng(input, options.limits)?;
+    let Some(winner) = winner else {
+        if options.method == CompressionMethod::Palette {
+            return Ok(passthrough(
+                input,
+                width,
+                height,
+                analysis,
+                candidates_tested,
+                vec!["Żaden wariant palety nie przeszedł wybranego progu jakości; zachowano oryginał.".into()],
+            ));
         }
-        candidate.bytes = smallest_oxipng(&candidate.bytes, options.limits)?;
-        candidate.decoded = decode_png(&candidate.bytes)?;
-        let final_ssim = ssimulacra2_score(&reference, &candidate.decoded)?;
-        let final_butteraugli = butteraugli_score(&reference, &candidate.decoded)?;
-        if final_ssim >= rules.ssimulacra2 && final_butteraugli <= rules.butteraugli {
-            candidate.ssimulacra2 = final_ssim;
-            finalists.push((candidate, final_butteraugli));
-        }
-    }
-    finalists.sort_by_key(|(candidate, _)| candidate.bytes.len());
-    let Some((winner, butteraugli)) = finalists.into_iter().next() else {
         return optimize_lossless(
             input,
             width,
             height,
             analysis,
-            vec!["Żaden wariant palety nie przeszedł obu progów; użyto OxiPNG lossless.".into()],
+            vec!["Żaden wariant palety nie przeszedł obu progów; użyto bezstratnej optymalizacji PNG.".into()],
+            candidates_tested,
             progress,
             cancellation,
             options.limits,
         );
     };
+    if options.method == CompressionMethod::Auto && lossless.len() < winner.bytes.len() {
+        return optimize_lossless(
+            input,
+            width,
+            height,
+            analysis,
+            vec!["Bezstratny wariant PNG był mniejszy od wariantów palety.".into()],
+            candidates_tested.saturating_add(1),
+            progress,
+            cancellation,
+            options.limits,
+        );
+    }
     if winner.bytes.len() >= input.len() {
         return Ok(passthrough(
             input,
@@ -176,6 +217,7 @@ pub(crate) fn optimize_png(
         output: winner.bytes,
         report: OptimizationReport {
             format: ImageFormat::Png,
+            output_format: ImageFormat::Png,
             width,
             height,
             original_size: input.len(),
@@ -184,7 +226,7 @@ pub(crate) fn optimize_png(
             saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
             metrics: QualityMetrics {
                 ssimulacra2: Some(winner.ssimulacra2),
-                butteraugli: Some(butteraugli),
+                butteraugli: Some(winner.butteraugli),
             },
             strategy: SelectedStrategy {
                 encoder: "quantette + oxipng".into(),
@@ -219,25 +261,32 @@ fn optimize_lossless(
     height: u32,
     analysis: ImageAnalysis,
     mut warnings: Vec<String>,
+    candidates_tested: u16,
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
     limits: ResourceLimits,
 ) -> Result<OptimizationResult, OptimizeError> {
     #[cfg(target_arch = "wasm32")]
     warnings.push(
-        "Wersja przeglądarkowa zachowuje ten PNG bez zmian; finalizacja OxiPNG jest dostępna w CLI."
-            .into(),
+        "Wersja przeglądarkowa ponownie kompresuje dane PNG bezstratnie w czystym Ruście.".into(),
     );
     check_cancelled(cancellation)?;
     progress.report(ProgressEvent {
         stage: ProgressStage::Finalizing,
         candidate: None,
-        total: Some(2),
+        total: None,
     });
     let optimized = smallest_oxipng(input, limits)?;
     if optimized.len() >= input.len() {
         warnings.push("PNG był już zoptymalizowany.".into());
-        return Ok(passthrough(input, width, height, analysis, 2, warnings));
+        return Ok(passthrough(
+            input,
+            width,
+            height,
+            analysis,
+            candidates_tested,
+            warnings,
+        ));
     }
     let before = image::load_from_memory_with_format(input, image::ImageFormat::Png)
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
@@ -259,6 +308,7 @@ fn optimize_lossless(
         output: optimized,
         report: OptimizationReport {
             format: ImageFormat::Png,
+            output_format: ImageFormat::Png,
             width,
             height,
             original_size: input.len(),
@@ -270,7 +320,7 @@ fn optimize_lossless(
                 butteraugli: None,
             },
             strategy: SelectedStrategy {
-                encoder: "oxipng".into(),
+                encoder: lossless_encoder_name().into(),
                 quality: None,
                 chroma_subsampling: None,
                 progressive: None,
@@ -278,7 +328,7 @@ fn optimize_lossless(
                 dithering: None,
                 lossless: true,
             },
-            candidates_tested: 2,
+            candidates_tested,
             processing_time_ms: 0.0,
             already_optimized: false,
             profile_set_version: PROFILE_SET_VERSION,
@@ -288,9 +338,22 @@ fn optimize_lossless(
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+fn lossless_encoder_name() -> &'static str {
+    "pure-rust PNG zlib"
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn lossless_encoder_name() -> &'static str {
+    "oxipng"
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn smallest_oxipng(input: &[u8], limits: ResourceLimits) -> Result<Vec<u8>, OptimizeError> {
     let mut variants = vec![input.to_vec()];
+    if let Ok(bytes) = recompress_png_idat(input, limits) {
+        variants.push(bytes);
+    }
     for preset in [2, 4] {
         let mut options = oxipng::Options::from_preset(preset);
         options.optimize_alpha = false;
@@ -308,7 +371,115 @@ fn smallest_oxipng(input: &[u8], limits: ResourceLimits) -> Result<Vec<u8>, Opti
 
 #[cfg(target_arch = "wasm32")]
 fn smallest_oxipng(input: &[u8], _limits: ResourceLimits) -> Result<Vec<u8>, OptimizeError> {
-    Ok(input.to_vec())
+    recompress_png_idat(input, _limits)
+}
+
+/// Re-encodes only the PNG's zlib stream. It preserves every non-IDAT chunk
+/// byte-for-byte, including ICC, alpha and 16-bit metadata, while offering a
+/// pure-Rust lossless fallback that can run in `wasm32-unknown-unknown`.
+fn recompress_png_idat(input: &[u8], limits: ResourceLimits) -> Result<Vec<u8>, OptimizeError> {
+    const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
+    if !input.starts_with(PNG_SIGNATURE) {
+        return Err(OptimizeError::Decode("invalid PNG signature".into()));
+    }
+
+    let mut idat = Vec::new();
+    let mut cursor = PNG_SIGNATURE.len();
+    while cursor < input.len() {
+        let (chunk_end, chunk_type, data) = png_chunk(input, cursor)?;
+        if chunk_type == b"IDAT" {
+            idat.extend_from_slice(data);
+        }
+        cursor = chunk_end;
+    }
+    if idat.is_empty() {
+        return Err(OptimizeError::Decode("PNG has no IDAT data".into()));
+    }
+
+    let raw = inflate_png_data(&idat, limits)?;
+    let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+    encoder
+        .write_all(&raw)
+        .map_err(|error| OptimizeError::Encode(error.to_string()))?;
+    let compressed = encoder
+        .finish()
+        .map_err(|error| OptimizeError::Encode(error.to_string()))?;
+
+    let mut output = Vec::with_capacity(input.len());
+    output.extend_from_slice(PNG_SIGNATURE);
+    cursor = PNG_SIGNATURE.len();
+    let mut wrote_idat = false;
+    while cursor < input.len() {
+        let (chunk_end, chunk_type, _data) = png_chunk(input, cursor)?;
+        if chunk_type == b"IDAT" {
+            if !wrote_idat {
+                append_png_chunk(&mut output, b"IDAT", &compressed);
+                wrote_idat = true;
+            }
+        } else {
+            output.extend_from_slice(&input[cursor..chunk_end]);
+        }
+        cursor = chunk_end;
+    }
+    Ok(output)
+}
+
+fn png_chunk(input: &[u8], start: usize) -> Result<(usize, &[u8], &[u8]), OptimizeError> {
+    let header_end = start
+        .checked_add(8)
+        .ok_or_else(|| OptimizeError::Decode("PNG chunk header overflow".into()))?;
+    if header_end > input.len() {
+        return Err(OptimizeError::Decode("truncated PNG chunk header".into()));
+    }
+    let length = u32::from_be_bytes(input[start..start + 4].try_into().unwrap()) as usize;
+    let data_start = header_end;
+    let data_end = data_start
+        .checked_add(length)
+        .ok_or_else(|| OptimizeError::Decode("PNG chunk data overflow".into()))?;
+    let chunk_end = data_end
+        .checked_add(4)
+        .ok_or_else(|| OptimizeError::Decode("PNG chunk CRC overflow".into()))?;
+    if chunk_end > input.len() {
+        return Err(OptimizeError::Decode("truncated PNG chunk data".into()));
+    }
+    Ok((
+        chunk_end,
+        &input[start + 4..header_end],
+        &input[data_start..data_end],
+    ))
+}
+
+fn inflate_png_data(compressed: &[u8], limits: ResourceLimits) -> Result<Vec<u8>, OptimizeError> {
+    let mut decoder = ZlibDecoder::new(compressed);
+    let mut raw = Vec::new();
+    let mut buffer = [0_u8; 16 * 1024];
+    loop {
+        let read = decoder
+            .read(&mut buffer)
+            .map_err(|error| OptimizeError::Decode(error.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        let estimated = raw.len().saturating_add(read) as u64;
+        if estimated > limits.max_working_bytes {
+            return Err(OptimizeError::MemoryLimit {
+                estimated,
+                limit: limits.max_working_bytes,
+            });
+        }
+        raw.extend_from_slice(&buffer[..read]);
+    }
+    Ok(raw)
+}
+
+fn append_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
+    output.extend_from_slice(&(data.len() as u32).to_be_bytes());
+    output.extend_from_slice(chunk_type);
+    output.extend_from_slice(data);
+    let mut hasher = Hasher::new();
+    hasher.update(chunk_type);
+    hasher.update(data);
+    output.extend_from_slice(&hasher.finalize().to_be_bytes());
 }
 
 fn encode_indexed_png(
@@ -387,6 +558,7 @@ fn passthrough(
         output: input.to_vec(),
         report: OptimizationReport {
             format: ImageFormat::Png,
+            output_format: ImageFormat::Png,
             width,
             height,
             original_size: input.len(),
@@ -413,5 +585,43 @@ fn passthrough(
             warnings,
             analysis,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lossless_recompression_shrinks_a_fast_rgba_png_without_changing_pixels() {
+        let width = 256;
+        let height = 256;
+        let pixels = (0..width * height)
+            .flat_map(|index| {
+                let value = if (index / width + index % width) % 2 == 0 {
+                    24
+                } else {
+                    228
+                };
+                [value, 160, 80, if index % 11 == 0 { 180 } else { 255 }]
+            })
+            .collect::<Vec<_>>();
+        let mut input = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(Cursor::new(&mut input), width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_compression(png::Compression::Fast);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&pixels)
+                .unwrap();
+        }
+
+        let output = recompress_png_idat(&input, ResourceLimits::default()).unwrap();
+
+        assert!(output.len() < input.len());
+        assert_eq!(decode_png(&input).unwrap(), decode_png(&output).unwrap());
     }
 }

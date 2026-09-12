@@ -1,13 +1,22 @@
-import { zipSync } from "fflate";
-import type { CompressionJob } from "../types";
+import type { CompressionJob, OptimizationReport } from "../types";
 
 export function outputName(job: CompressionJob): string {
-  return job.file.name.replace(/(\.[^.]+)$/u, ".squeezed$1");
+  const extension = extensionFor(job.report?.outputFormat);
+  const basename = job.file.name.replace(/\.[^.]+$/u, "");
+  return `${basename}.squeezed.${extension}`;
 }
 
 export function downloadJob(job: CompressionJob): void {
   if (!job.output) return;
-  download(new Blob([job.output as BlobPart], { type: job.file.type }), outputName(job));
+  download(new Blob([job.output as BlobPart], { type: mimeFor(job.report?.outputFormat) }), outputName(job));
+}
+
+function extensionFor(format: OptimizationReport["outputFormat"] | undefined): string {
+  return ({ jpeg: "jpg", png: "png", webp: "webp", avif: "avif" } as const)[format ?? "jpeg"];
+}
+
+function mimeFor(format: OptimizationReport["outputFormat"] | undefined): string {
+  return ({ jpeg: "image/jpeg", png: "image/png", webp: "image/webp", avif: "image/avif" } as const)[format ?? "jpeg"];
 }
 
 export function downloadReport(job: CompressionJob): void {
@@ -16,17 +25,35 @@ export function downloadReport(job: CompressionJob): void {
   download(new Blob([report], { type: "application/json" }), `${outputName(job)}.json`);
 }
 
-export function downloadZip(jobs: readonly CompressionJob[]): void {
-  const entries: Record<string, Uint8Array> = {};
+export async function downloadZip(jobs: readonly CompressionJob[]): Promise<void> {
+  const entries: Record<string, ArrayBuffer> = {};
   for (const job of jobs) {
-    if (job.output) entries[uniqueName(entries, outputName(job))] = job.output;
+    if (job.output) {
+      entries[uniqueName(entries, outputName(job))] = job.output.buffer.slice(
+        job.output.byteOffset,
+        job.output.byteOffset + job.output.byteLength,
+      ) as ArrayBuffer;
+    }
   }
   if (Object.keys(entries).length === 0) return;
-  const archive = zipSync(entries, { level: 6 });
-  download(new Blob([archive as BlobPart], { type: "application/zip" }), "squeeze-images.zip");
+  const worker = new Worker(new URL("../worker/archive.worker.ts", import.meta.url), { type: "module", name: "squeeze-archive" });
+  try {
+    const archive = await new Promise<ArrayBuffer>((resolve, reject) => {
+      worker.onmessage = (event: MessageEvent<{ ok: boolean; buffer?: ArrayBuffer; message?: string }>) => {
+        if (event.data.ok && event.data.buffer) resolve(event.data.buffer);
+        else reject(new Error(event.data.message ?? "Nie udało się utworzyć ZIP."));
+      };
+      worker.onerror = () => reject(new Error("Worker archiwum uległ awarii."));
+      const transfers = Object.values(entries);
+      worker.postMessage({ entries }, { transfer: transfers });
+    });
+    download(new Blob([archive], { type: "application/zip" }), "squeeze-images.zip");
+  } finally {
+    worker.terminate();
+  }
 }
 
-function uniqueName(entries: Record<string, Uint8Array>, proposed: string): string {
+function uniqueName(entries: Record<string, unknown>, proposed: string): string {
   if (!(proposed in entries)) return proposed;
   const dot = proposed.lastIndexOf(".");
   const base = dot > 0 ? proposed.slice(0, dot) : proposed;

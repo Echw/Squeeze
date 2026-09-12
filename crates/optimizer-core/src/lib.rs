@@ -20,6 +20,9 @@ pub fn optimize(
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
 ) -> Result<OptimizationResult, OptimizeError> {
+    if options.output_format != OutputFormat::Preserve {
+        return Err(OptimizeError::UnsupportedOutputFormat);
+    }
     #[cfg(not(target_arch = "wasm32"))]
     let started = Instant::now();
     if input.len() > options.limits.max_input_bytes {
@@ -205,6 +208,18 @@ mod tests {
         assert!(matches!(
             optimize(&[0xff, 0xd8, 0xff], options, &NoProgress, &NeverCancelled),
             Err(OptimizeError::InputTooLarge { limit: 2 })
+        ));
+    }
+
+    #[test]
+    fn rejects_an_output_codec_without_an_explicit_adapter() {
+        let options = OptimizeOptions {
+            output_format: OutputFormat::Webp,
+            ..OptimizeOptions::default()
+        };
+        assert!(matches!(
+            optimize(&[0xff, 0xd8, 0xff], options, &NoProgress, &NeverCancelled),
+            Err(OptimizeError::UnsupportedOutputFormat)
         ));
     }
 }

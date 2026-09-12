@@ -73,7 +73,7 @@ pub(crate) fn butteraugli_score(
         distorted.as_ref(),
         &ButteraugliParams::default(),
     )
-    .map(|result| f64::from(result.score))
+    .map(|result| result.score)
     .map_err(|error| OptimizeError::Metric(error.to_string()))
 }
 
