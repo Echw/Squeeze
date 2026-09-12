@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { watch } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,15 @@ let rebuilding = false;
 let rebuildAgain = false;
 let activeBuild;
 const pendingReasons = new Set();
+const watchedInputs = [
+  join(root, "crates", "optimizer-core", "src"),
+  join(root, "crates", "optimizer-wasm", "src"),
+  join(root, "crates", "optimizer-core", "Cargo.toml"),
+  join(root, "crates", "optimizer-wasm", "Cargo.toml"),
+  join(root, "Cargo.toml"),
+  join(root, "Cargo.lock"),
+];
+let observedMtime = newest(watchedInputs);
 
 const schedule = (reason) => {
   // Cargo may update the lockfile while it is already building the exact
@@ -24,17 +33,12 @@ const schedule = (reason) => {
   clearTimeout(timer);
   timer = setTimeout(rebuild, 160);
 };
-const watchRustSources = (path) => watch(path, { recursive: true }, (_event, filename) => {
-  if (!filename || filename.endsWith(".rs")) schedule("Rust");
-});
-const watchers = [
-  watchRustSources(join(root, "crates", "optimizer-core", "src")),
-  watchRustSources(join(root, "crates", "optimizer-wasm", "src")),
-  watch(join(root, "crates", "optimizer-core", "Cargo.toml"), () => schedule("optimizer-core/Cargo.toml")),
-  watch(join(root, "crates", "optimizer-wasm", "Cargo.toml"), () => schedule("optimizer-wasm/Cargo.toml")),
-  watch(join(root, "Cargo.toml"), () => schedule("Cargo.toml")),
-  watch(join(root, "Cargo.lock"), () => schedule("Cargo.lock")),
-];
+const poller = setInterval(() => {
+  const nextMtime = newest(watchedInputs);
+  if (nextMtime <= observedMtime) return;
+  observedMtime = nextMtime;
+  schedule("źródła Rust/WASM");
+}, 750);
 
 function rebuild() {
   if (rebuilding) {
@@ -58,13 +62,28 @@ function rebuild() {
 }
 
 function stop(signal) {
-  for (const watcher of watchers) watcher.close();
+  clearInterval(poller);
   activeBuild?.kill(signal);
   vite.kill(signal);
 }
 process.on("SIGINT", () => stop("SIGINT"));
 process.on("SIGTERM", () => stop("SIGTERM"));
 vite.on("exit", (code) => {
-  for (const watcher of watchers) watcher.close();
+  clearInterval(poller);
   process.exit(code ?? 0);
 });
+
+function newest(paths) {
+  return Math.max(...paths.map(modifiedAt));
+}
+
+function modifiedAt(path) {
+  const stat = statSync(path);
+  if (!stat.isDirectory()) return stat.mtimeMs;
+  let latest = stat.mtimeMs;
+  for (const entry of readdirSync(path, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    latest = Math.max(latest, modifiedAt(join(path, entry.name)));
+  }
+  return latest;
+}
