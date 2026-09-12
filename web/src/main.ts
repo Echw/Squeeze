@@ -24,14 +24,30 @@ app.innerHTML = `
     </section>
 
     <section class="workspace" aria-label="Kompresor obrazów">
-      <div class="toolbar">
-        <div class="toolbar-controls">
+      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
+        <input id="file-input" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple hidden />
+        <span class="drop-icon" aria-hidden="true">${uploadIcon()}</span>
+        <div>
+          <h2>Dodaj obrazy do kolejki</h2>
+          <p id="drop-hint">upuść je tutaj albo <span>wybierz pliki</span> · JPEG i PNG · maks. 24 MP</p>
+        </div>
+        <span class="drop-badge">Ustawienia wybierzesz przed startem</span>
+      </div>
+
+      <section class="batch-settings" id="batch-settings" hidden aria-labelledby="batch-settings-title">
+        <div class="batch-settings__intro">
+          <p class="eyebrow">Krok 2 z 2</p>
+          <h2 id="batch-settings-title">Ustaw kolejkę, potem uruchom</h2>
+          <p id="profile-hint">Smart wybiera jeden bezpieczny silnik dla każdego PNG. To najszybszy tryb dla całej kolejki.</p>
+        </div>
+        <div class="batch-settings__controls">
           <label class="method-control">
-            <span>Metoda PNG</span>
+            <span>Tryb kompresji</span>
             <select id="method">
-              <option value="auto" selected>Najlepszy wynik</option>
-              <option value="lossless">Tylko bezstratna</option>
-              <option value="palette">Tylko paleta</option>
+              <option value="auto" selected>Smart — jeden silnik</option>
+              <option value="search">Porównaj metody</option>
+              <option value="lossless">Tylko bezstratna PNG</option>
+              <option value="palette">Tylko paleta PNG</option>
             </select>
           </label>
           <label class="profile-control">
@@ -42,32 +58,25 @@ app.innerHTML = `
               <option value="maximumCompression">Maksymalna kompresja</option>
             </select>
           </label>
+          <details class="advanced-settings">
+            <summary>Zaawansowane</summary>
+            <div>
           <fieldset class="effort-control" id="effort-control">
             <legend>Szukanie</legend>
             <label><input name="effort" type="radio" value="auto" checked /> Auto</label>
             <label><input name="effort" type="radio" value="detailed" /> Dokładnie</label>
           </fieldset>
           <label class="expert-toggle"><input id="expert-mode" type="checkbox" /><span>Expert mode</span></label>
+            </div>
+          </details>
         </div>
-        <p id="profile-hint">Najlepszy wynik sprawdza paletę i bezstratną kompresję, a potem zostawia mniejszy bezpieczny plik.</p>
-      </div>
-
-      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
-        <input id="file-input" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple hidden />
-        <span class="drop-icon" aria-hidden="true">${uploadIcon()}</span>
-        <div>
-          <h2>Upuść obrazy tutaj</h2>
-          <p id="drop-hint">albo <span>wybierz pliki</span> · JPEG i PNG · maks. 24 MP</p>
-        </div>
-        <span class="drop-badge">Format zostaje bez zmian</span>
-      </div>
 
       <div class="queue-header" id="queue-header" hidden>
         <div>
           <p class="eyebrow">Kolejka</p>
           <h2>Twoje obrazy <span id="queue-count"></span></h2>
         </div>
-        <div class="queue-header-actions"><button class="text-button" id="pause-button" type="button">Wstrzymaj kolejkę</button><button class="text-button" id="clear-button" type="button">Wyczyść zakończone</button></div>
+        <div class="queue-header-actions"><button class="button button--primary" id="run-button" type="button">Rozpocznij optymalizację</button><button class="text-button" id="clear-button" type="button">Wyczyść zakończone</button></div>
       </div>
       <div class="queue" id="queue" aria-live="polite"></div>
       <p class="queue-notice" id="queue-notice" role="status" hidden></p>
@@ -88,6 +97,7 @@ const input = document.querySelector<HTMLInputElement>("#file-input")!;
 const methodInput = document.querySelector<HTMLSelectElement>("#method")!;
 const profile = document.querySelector<HTMLSelectElement>("#profile")!;
 const profileHint = document.querySelector<HTMLParagraphElement>("#profile-hint")!;
+const batchSettings = document.querySelector<HTMLElement>("#batch-settings")!;
 const expertModeInput = document.querySelector<HTMLInputElement>("#expert-mode")!;
 const effortControl = document.querySelector<HTMLFieldSetElement>("#effort-control")!;
 const queueElement = document.querySelector<HTMLDivElement>("#queue")!;
@@ -95,12 +105,12 @@ const queueHeader = document.querySelector<HTMLDivElement>("#queue-header")!;
 const queueCount = document.querySelector<HTMLSpanElement>("#queue-count")!;
 const summary = document.querySelector<HTMLElement>("#summary")!;
 const queueNotice = document.querySelector<HTMLParagraphElement>("#queue-notice")!;
-const pauseButton = document.querySelector<HTMLButtonElement>("#pause-button")!;
+const runButton = document.querySelector<HTMLButtonElement>("#run-button")!;
 let currentJobs: readonly CompressionJob[] = [];
 let expertMode = false;
 let searchEffort: SearchEffort = "auto";
 let method: CompressionMethod = "auto";
-let queuePaused = false;
+let queuePaused = true;
 let summarySignature = "";
 
 dropzone.addEventListener("click", () => input.click());
@@ -128,10 +138,12 @@ for (const eventName of ["dragleave", "drop"]) {
 }
 dropzone.addEventListener("drop", (event) => addFiles(event.dataTransfer?.files));
 profile.addEventListener("change", () => {
+  applySettingsToWaitingJobs();
   updateOptimizationHint();
 });
 effortControl.addEventListener("change", () => {
   searchEffort = effortControl.querySelector<HTMLInputElement>("input:checked")!.value as SearchEffort;
+  applySettingsToWaitingJobs();
   updateOptimizationHint();
 });
 methodInput.addEventListener("change", () => {
@@ -139,6 +151,7 @@ methodInput.addEventListener("change", () => {
   const lossless = method === "lossless";
   profile.disabled = lossless;
   effortControl.disabled = lossless;
+  applySettingsToWaitingJobs();
   updateOptimizationHint();
 });
 expertModeInput.addEventListener("change", () => {
@@ -146,7 +159,10 @@ expertModeInput.addEventListener("change", () => {
   renderQueue(currentJobs, queuePaused);
 });
 document.querySelector("#clear-button")!.addEventListener("click", () => queue.clearCompleted());
-pauseButton.addEventListener("click", () => queue.togglePaused());
+runButton.addEventListener("click", () => {
+  if (queuePaused) queue.start();
+  else queue.pause();
+});
 window.addEventListener("pagehide", () => queue.dispose(), { once: true });
 
 queueElement.addEventListener("click", (event) => {
@@ -199,10 +215,18 @@ function addFiles(files: FileList | null | undefined): void {
   }
 }
 
+function applySettingsToWaitingJobs(): void {
+  queue.reconfigureQueued({ profile: profile.value as CompressionProfile, searchEffort, method });
+}
+
 function renderQueue(jobs: readonly CompressionJob[], paused: boolean): void {
   queueHeader.hidden = jobs.length === 0;
+  batchSettings.hidden = jobs.length === 0;
   queueCount.textContent = `(${jobs.length})`;
-  pauseButton.textContent = paused ? "Wznów kolejkę" : "Wstrzymaj kolejkę";
+  const waiting = jobs.filter((job) => job.status === "queued").length;
+  runButton.hidden = waiting === 0;
+  runButton.textContent = paused ? `Rozpocznij optymalizację${waiting ? ` (${waiting})` : ""}` : "Wstrzymaj kolejkę";
+  runButton.className = paused ? "button button--primary" : "text-button";
   reconcileJobs(jobs);
   const complete = jobs.filter((job) => job.status === "complete" && job.report);
   summary.hidden = complete.length === 0;
@@ -313,8 +337,8 @@ function jobActions(job: CompressionJob): string {
   if (job.status === "error" || job.status === "cancelled") {
     return `<button class="button button--secondary" type="button" data-action="retry" data-id="${job.id}">Spróbuj ponownie</button><button class="icon-button" type="button" data-action="remove" data-id="${job.id}" aria-label="Usuń plik">${trashIcon()}</button>`;
   }
-  const detailed = job.searchEffort === "auto" && job.method === "auto" ? `<button class="button button--ghost" type="button" data-action="detailed" data-id="${job.id}">Szukaj dokładniej</button>` : "";
-  const methodPicker = isPngJob(job) ? `<label class="job-method"><span>Metoda</span><select data-method aria-label="Metoda dla ${escapeHtml(job.file.name)}"><option value="auto"${job.method === "auto" ? " selected" : ""}>Najlepszy wynik</option><option value="lossless"${job.method === "lossless" ? " selected" : ""}>Bezstratna</option><option value="palette"${job.method === "palette" ? " selected" : ""}>Paleta</option></select></label><button class="button button--ghost" type="button" data-action="rerun-method" data-id="${job.id}">Przelicz</button>` : "";
+  const detailed = job.searchEffort === "auto" && job.method === "search" ? `<button class="button button--ghost" type="button" data-action="detailed" data-id="${job.id}">Szukaj dokładniej</button>` : "";
+  const methodPicker = isPngJob(job) ? `<label class="job-method"><span>Metoda</span><select data-method aria-label="Metoda dla ${escapeHtml(job.file.name)}"><option value="auto"${job.method === "auto" ? " selected" : ""}>Smart</option><option value="search"${job.method === "search" ? " selected" : ""}>Porównaj metody</option><option value="lossless"${job.method === "lossless" ? " selected" : ""}>Bezstratna</option><option value="palette"${job.method === "palette" ? " selected" : ""}>Paleta</option></select></label><button class="button button--ghost" type="button" data-action="rerun-method" data-id="${job.id}">Przelicz</button>` : "";
   return `${detailed}${methodPicker}<button class="icon-button" type="button" data-action="compare" data-id="${job.id}" aria-label="Porównaj obrazy" title="Porównaj">${compareIcon()}</button><button class="icon-button" type="button" data-action="report" data-id="${job.id}" aria-label="Pobierz raport JSON" title="Raport JSON">${reportIcon()}</button><button class="button button--secondary" type="button" data-action="download" data-id="${job.id}">${downloadIcon()} Pobierz</button><button class="icon-button" type="button" data-action="remove" data-id="${job.id}" aria-label="Usuń plik">${trashIcon()}</button>`;
 }
 
@@ -357,9 +381,13 @@ function updateOptimizationHint(): void {
     profileHint.textContent = "Jeden silnik: paleta PNG. Wynik musi przejść wybrany próg jakości, inaczej zachowamy oryginał.";
     return;
   }
-  profileHint.textContent = searchEffort === "detailed"
-    ? "Sprawdza więcej wariantów przy tym samym progu jakości; potrwa dłużej."
-    : "Najlepszy wynik sprawdza paletę i bezstratną kompresję, a potem zostawia mniejszy bezpieczny plik.";
+  if (method === "search") {
+    profileHint.textContent = searchEffort === "detailed"
+      ? "Porównuje więcej kandydatów przy tym samym progu jakości. To najwolniejszy, najbardziej dociekliwy tryb."
+      : "Porównuje paletę i bezstratną kompresję PNG, a potem zostawia najmniejszy poprawny wynik.";
+    return;
+  }
+  profileHint.textContent = "Smart wybiera jeden bezpieczny silnik dla każdego PNG. To najszybszy tryb dla całej kolejki.";
 }
 
 function profileName(value: CompressionProfile): string {
@@ -370,7 +398,7 @@ function effortName(value: SearchEffort): string { return value === "detailed" ?
 function isPngJob(job: CompressionJob): boolean { return job.file.type === "image/png" || /\.png$/i.test(job.file.name); }
 function methodName(job: CompressionJob): string {
   if (!isPngJob(job)) return "MozJPEG";
-  return ({ auto: "Najlepszy wynik", lossless: "Bezstratna", palette: "Paleta" })[job.method];
+  return ({ auto: "Smart", search: "Porównaj metody", lossless: "Bezstratna", palette: "Paleta" })[job.method];
 }
 
 export function formatBytes(value: number): string {

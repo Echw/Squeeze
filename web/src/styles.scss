@@ -147,23 +147,29 @@ button { -webkit-tap-highlight-color: transparent; }
   backdrop-filter: blur(12px);
 }
 
-.toolbar {
-  min-height: 74px;
-  padding: 13px 16px 13px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.batch-settings {
+  margin: 10px 0 0;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(210px, 0.85fr) minmax(0, 1.5fr);
   gap: 24px;
+  align-items: center;
+  border: 1px solid $line;
+  border-radius: 17px;
+  background: linear-gradient(130deg, rgba($green-soft, 0.54), rgba($surface, 0.92));
 }
 
-.toolbar-controls { display: flex; align-items: center; gap: 18px; }
+.batch-settings__intro .eyebrow { margin-bottom: 5px; }
+.batch-settings__intro h2 { margin: 0; font-size: 19px; letter-spacing: -0.035em; }
+.batch-settings__intro > p:last-child { margin: 7px 0 0; color: $muted; font-size: 12px; line-height: 1.5; }
+.batch-settings__controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 11px 15px; }
 
 .profile-control, .method-control {
-  display: flex;
+  display: grid;
   align-items: center;
-  gap: 14px;
+  gap: 5px;
   color: $muted;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 650;
 }
 
@@ -180,9 +186,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .effort-control input { position: absolute; opacity: 0; pointer-events: none; }
 
 .profile-control select, .method-control select {
-  min-width: 210px;
-  height: 44px;
-  padding: 0 38px 0 14px;
+  min-width: 188px;
+  height: 40px;
+  padding: 0 32px 0 11px;
   border: 1px solid $line;
   border-radius: 12px;
   background: $surface;
@@ -192,18 +198,17 @@ button { -webkit-tap-highlight-color: transparent; }
 .method-control select { min-width: 174px; }
 .profile-control select:disabled { cursor: not-allowed; opacity: 0.52; }
 
-.toolbar > p {
-  margin: 0;
-  color: $muted;
-  font-size: 13px;
-}
-
 .expert-toggle { display: flex; align-items: center; gap: 7px; color: $muted; font-size: 12px; font-weight: 650; cursor: pointer; }
 .expert-toggle input { width: 16px; height: 16px; accent-color: $green; }
+.advanced-settings { position: relative; }
+.advanced-settings summary { padding: 10px 4px; color: $muted; font-size: 12px; font-weight: 700; cursor: pointer; list-style: none; }
+.advanced-settings summary::after { margin-left: 6px; content: "+"; color: $green; }
+.advanced-settings[open] summary::after { content: "−"; }
+.advanced-settings > div { position: absolute; z-index: 3; top: calc(100% + 4px); right: 0; min-width: 248px; padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid $line; border-radius: 11px; background: $surface; box-shadow: 0 12px 26px rgba($ink, 0.12); }
 
 .dropzone {
   position: relative;
-  min-height: 278px;
+  min-height: 302px;
   margin: 0;
   padding: 44px 24px;
   display: flex;
@@ -505,12 +510,13 @@ details ul { margin: 6px 0 0; padding-left: 18px; }
   .hero h1 { font-size: clamp(40px, 13vw, 60px); }
   .hero-copy { font-size: 16px; }
   .workspace { border-radius: 20px; padding: 7px; }
-  .toolbar { padding: 12px 9px 16px; align-items: stretch; flex-direction: column; gap: 8px; }
-  .toolbar-controls { align-items: stretch; flex-direction: column; gap: 10px; }
-  .profile-control { justify-content: space-between; }
-  .profile-control, .method-control { justify-content: space-between; }
-  .profile-control select, .method-control select { min-width: 0; max-width: 62%; }
-  .toolbar > p { padding-inline: 2px; }
+  .batch-settings { padding: 16px 12px; grid-template-columns: 1fr; gap: 16px; }
+  .batch-settings__controls { align-items: stretch; justify-content: stretch; flex-direction: column; }
+  .profile-control, .method-control { width: 100%; }
+  .profile-control select, .method-control select { min-width: 0; width: 100%; }
+  .advanced-settings { width: 100%; }
+  .advanced-settings summary { padding-left: 0; }
+  .advanced-settings > div { position: static; min-width: 0; margin-top: 4px; }
   .dropzone { min-height: 230px; padding: 32px 16px; }
   .dropzone p { line-height: 1.6; }
   .queue-header { padding: 28px 9px 13px; }

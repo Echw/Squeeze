@@ -78,6 +78,24 @@ pub(crate) fn optimize_png(
         );
     }
 
+    // Smart mode deliberately commits to one suitable strategy. A photographic
+    // or high-colour PNG has little chance of passing a palette conversion, so
+    // avoid spending seconds measuring candidates that cannot win. Users can
+    // opt into `Search` when they want to compare every compatible strategy.
+    if options.method == CompressionMethod::Auto && !should_try_palette(&analysis) {
+        return optimize_lossless(
+            input,
+            width,
+            height,
+            analysis,
+            vec!["Smart wybrał bezstratną ścieżkę dla obrazu o dużej liczbie kolorów. Wybierz „Porównaj metody”, aby sprawdzić także paletę PNG.".into()],
+            1,
+            progress,
+            cancellation,
+            options.limits,
+        );
+    }
+
     let rules = options
         .profile
         .rules(options.search_effort)
@@ -92,14 +110,20 @@ pub(crate) fn optimize_png(
     let mut candidates_tested = 0_u16;
     let mut winner: Option<PngWinner> = None;
 
+    let candidate_budget = match options.method {
+        // Smart evaluates only the closest palette candidates. The full budget
+        // remains available to the explicit palette and comparison modes.
+        CompressionMethod::Auto => rules.candidate_budget.min(3),
+        _ => rules.candidate_budget,
+    };
     progress.report(ProgressEvent {
         stage: ProgressStage::Searching,
         candidate: Some(0),
-        total: Some(rules.candidate_budget),
+        total: Some(candidate_budget),
     });
     'search: for colors in palette_sizes {
         for dithered in [false, true] {
-            if candidates_tested >= rules.candidate_budget {
+            if candidates_tested >= candidate_budget {
                 break 'search;
             }
             check_cancelled(cancellation)?;
@@ -107,7 +131,7 @@ pub(crate) fn optimize_png(
             progress.report(ProgressEvent {
                 stage: ProgressStage::Searching,
                 candidate: Some(candidates_tested),
-                total: Some(rules.candidate_budget),
+                total: Some(candidate_budget),
             });
             let palette_size = PaletteSize::try_from(colors)
                 .map_err(|error| OptimizeError::Encode(error.to_string()))?;
@@ -127,7 +151,7 @@ pub(crate) fn optimize_png(
             progress.report(ProgressEvent {
                 stage: ProgressStage::Measuring,
                 candidate: Some(candidates_tested),
-                total: Some(rules.candidate_budget),
+                total: Some(candidate_budget),
             });
             let score = ssimulacra2_score(&reference, &decoded)?;
             if score < rules.ssimulacra2 {
@@ -164,7 +188,6 @@ pub(crate) fn optimize_png(
         candidate: None,
         total: None,
     });
-    let lossless = smallest_oxipng(input, options.limits)?;
     let Some(winner) = winner else {
         if options.method == CompressionMethod::Palette {
             return Ok(passthrough(
@@ -188,7 +211,9 @@ pub(crate) fn optimize_png(
             options.limits,
         );
     };
-    if options.method == CompressionMethod::Auto && lossless.len() < winner.bytes.len() {
+    if options.method == CompressionMethod::Search
+        && smallest_oxipng(input, options.limits)?.len() < winner.bytes.len()
+    {
         return optimize_lossless(
             input,
             width,
@@ -252,6 +277,12 @@ pub(crate) fn optimize_png(
             analysis,
         },
     })
+}
+
+fn should_try_palette(analysis: &ImageAnalysis) -> bool {
+    analysis.estimated_colors <= 4_096
+        && !matches!(analysis.kind, ContentKind::Photo)
+        && analysis.noise < 0.08
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -591,6 +622,31 @@ fn passthrough(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smart_avoids_palette_for_high_colour_photographs() {
+        let photo = ImageAnalysis {
+            kind: ContentKind::Photo,
+            entropy: 7.2,
+            estimated_colors: 120_000,
+            edge_density: 0.2,
+            noise: 0.12,
+            flat_area_ratio: 0.1,
+            has_alpha: false,
+        };
+        let graphic = ImageAnalysis {
+            kind: ContentKind::Graphic,
+            entropy: 2.1,
+            estimated_colors: 48,
+            edge_density: 0.1,
+            noise: 0.01,
+            flat_area_ratio: 0.8,
+            has_alpha: false,
+        };
+
+        assert!(!should_try_palette(&photo));
+        assert!(should_try_palette(&graphic));
+    }
 
     #[test]
     fn lossless_recompression_shrinks_a_fast_rgba_png_without_changing_pixels() {

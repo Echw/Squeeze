@@ -25,4 +25,11 @@ describe("optionsFor", () => {
       outputFormat: "preserve",
     });
   });
+
+  it("keeps the explicit multi-method search strategy in the worker options", () => {
+    expect(optionsFor("balanced", "auto", "search")).toMatchObject({
+      method: "search",
+      searchEffort: "auto",
+    });
+  });
 });

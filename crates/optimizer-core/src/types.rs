@@ -30,9 +30,11 @@ pub enum SearchEffort {
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum CompressionMethod {
-    /// Evaluate every compatible strategy and keep the smallest safe result.
+    /// Choose one safe strategy from the image analysis. This is the fast default.
     #[default]
     Auto,
+    /// Evaluate compatible PNG strategies and keep the smallest safe result.
+    Search,
     /// Only recompress the existing PNG stream; decoded pixels never change.
     Lossless,
     /// Only try indexed-palette candidates under the selected quality threshold.

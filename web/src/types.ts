@@ -8,8 +8,8 @@ export type CompressionProfile =
 
 export type SearchEffort = "auto" | "detailed";
 
-/** The strategy is explicit: Auto may select the winner, other values run one PNG path only. */
-export type CompressionMethod = "auto" | "lossless" | "palette";
+/** Smart selects one compatible path. Search compares compatible PNG paths before choosing a winner. */
+export type CompressionMethod = "auto" | "search" | "lossless" | "palette";
 
 /** Output codecs are explicit so a future encoder can never silently change a file format. */
 export type OutputFormat = "preserve" | "webp" | "avif";

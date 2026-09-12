@@ -29,7 +29,8 @@ export class CompressionQueue {
   #jobs: CompressionJob[] = [];
   #worker = this.#createWorker();
   #activeId?: string;
-  #paused = false;
+  // Files are collected first. Starting work is an explicit action in the UI.
+  #paused = true;
   #listeners = new Set<Listener>();
   #previewUrls = new Map<string, string>();
 
@@ -55,6 +56,34 @@ export class CompressionQueue {
     return { accepted, rejected };
   }
 
+  /** Applies batch settings only to work that has not started yet. */
+  reconfigureQueued(settings: QueueSettings): number {
+    let updated = 0;
+    for (const job of this.#jobs) {
+      if (job.status !== "queued") continue;
+      job.profile = settings.profile;
+      job.searchEffort = settings.searchEffort;
+      job.method = isPng(job.file) ? settings.method : "auto";
+      job.outputFormat = settings.outputFormat ?? "preserve";
+      updated += 1;
+    }
+    if (updated) this.#emit();
+    return updated;
+  }
+
+  start(): void {
+    if (!this.#paused) return;
+    this.#paused = false;
+    this.#emit();
+    void this.#pump();
+  }
+
+  pause(): void {
+    if (this.#paused) return;
+    this.#paused = true;
+    this.#emit();
+  }
+
   rerun(id: string, searchEffort: SearchEffort, method = this.#find(id)?.method ?? "auto"): void {
     const job = this.#find(id);
     if (!job) return;
@@ -62,9 +91,8 @@ export class CompressionQueue {
   }
 
   togglePaused(): void {
-    this.#paused = !this.#paused;
-    this.#emit();
-    if (!this.#paused) void this.#pump();
+    if (this.#paused) this.start();
+    else this.pause();
   }
 
   clearCompleted(): void {
