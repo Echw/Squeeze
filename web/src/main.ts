@@ -1,427 +1,218 @@
 import "./styles.scss";
-import { CompressionQueue } from "./queue/compression-queue";
+import { CompressionQueue, type EngineState, type QueueSettings } from "./queue/compression-queue";
 import { downloadJob, downloadReport, downloadZip } from "./services/downloads";
-import type { CompressionJob, CompressionMethod, CompressionProfile, ProgressStage, SearchEffort } from "./types";
+import { loadSettings, saveSettings, type AppSettings } from "./settings";
+import type { CompressionJob, CompressionMethod, CompressionProfile, OutputFormat, SearchEffort, WorkerCapabilities } from "./types";
 import { openComparison } from "./ui/compare-modal";
+import { formatBytes, JobView, type JobAction } from "./ui/job-view";
 
-const app = document.querySelector<HTMLDivElement>("#app")!;
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => void navigator.serviceWorker.register("/sw.js"));
-}
-app.innerHTML = `
-  <header class="site-header">
-    <a class="brand" href="#main" aria-label="Squeeze — strona główna">
-      <span class="brand-mark" aria-hidden="true">${sparkIcon()}</span>
-      <span>Squeeze</span>
-    </a>
-    <div class="privacy-pill">${lockIcon()} <span>100% lokalnie</span></div>
-  </header>
-  <main id="main">
-    <section class="hero" aria-labelledby="hero-title">
-      <p class="eyebrow">Mniej bajtów. Ten sam obraz.</p>
-      <h1 id="hero-title">Kompresja, która<br /><span>patrzy jak człowiek.</span></h1>
-      <p class="hero-copy">Squeeze analizuje każdy obraz, sprawdza jakość piksel po pikselu i wybiera najmniejszy bezpieczny wynik. Bez uploadu.</p>
-    </section>
+class AppController {
+  readonly #settings: AppSettings;
+  readonly #queue: CompressionQueue;
+  readonly #views = new Map<string, JobView>();
+  readonly #dropzone = get<HTMLElement>("dropzone");
+  readonly #input = get<HTMLInputElement>("file-input");
+  readonly #profile = get<HTMLSelectElement>("profile");
+  readonly #outputFormat = get<HTMLSelectElement>("output-format");
+  readonly #autoStart = get<HTMLInputElement>("auto-start");
+  readonly #method = get<HTMLSelectElement>("method");
+  readonly #effort = get<HTMLSelectElement>("effort");
+  readonly #expertMode = get<HTMLInputElement>("expert-mode");
+  readonly #results = get<HTMLElement>("results");
+  readonly #queueElement = get<HTMLElement>("queue");
+  readonly #runButton = get<HTMLButtonElement>("run-button");
+  readonly #summary = get<HTMLElement>("summary");
+  #jobs: readonly CompressionJob[] = [];
+  #paused = false;
+  #unsubscribe?: () => void;
 
-    <section class="workspace" aria-label="Kompresor obrazów">
-      <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
-        <input id="file-input" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple hidden />
-        <span class="drop-icon" aria-hidden="true">${uploadIcon()}</span>
-        <div>
-          <h2>Dodaj obrazy do kolejki</h2>
-          <p id="drop-hint">upuść je tutaj albo <span>wybierz pliki</span> · JPEG i PNG · maks. 24 MP</p>
-        </div>
-        <span class="drop-badge">Ustawienia wybierzesz przed startem</span>
-      </div>
-
-      <section class="batch-settings" id="batch-settings" hidden aria-labelledby="batch-settings-title">
-        <div class="batch-settings__intro">
-          <p class="eyebrow">Krok 2 z 2</p>
-          <h2 id="batch-settings-title">Ustaw kolejkę, potem uruchom</h2>
-          <p id="profile-hint">Smart wybiera jeden bezpieczny silnik dla każdego PNG. To najszybszy tryb dla całej kolejki.</p>
-        </div>
-        <div class="batch-settings__controls">
-          <label class="method-control">
-            <span>Tryb kompresji</span>
-            <select id="method">
-              <option value="auto" selected>Smart — jeden silnik</option>
-              <option value="search">Porównaj metody</option>
-              <option value="lossless">Tylko bezstratna PNG</option>
-              <option value="palette">Tylko paleta PNG</option>
-            </select>
-          </label>
-          <label class="profile-control">
-            <span>Profil jakości</span>
-            <select id="profile">
-              <option value="maximumQuality">Maksymalna jakość</option>
-              <option value="balanced" selected>Zbalansowany</option>
-              <option value="maximumCompression">Maksymalna kompresja</option>
-            </select>
-          </label>
-          <details class="advanced-settings">
-            <summary>Zaawansowane</summary>
-            <div>
-          <fieldset class="effort-control" id="effort-control">
-            <legend>Szukanie</legend>
-            <label><input name="effort" type="radio" value="auto" checked /> Auto</label>
-            <label><input name="effort" type="radio" value="detailed" /> Dokładnie</label>
-          </fieldset>
-          <label class="expert-toggle"><input id="expert-mode" type="checkbox" /><span>Expert mode</span></label>
-            </div>
-          </details>
-        </div>
-
-      <div class="queue-header" id="queue-header" hidden>
-        <div>
-          <p class="eyebrow">Kolejka</p>
-          <h2>Twoje obrazy <span id="queue-count"></span></h2>
-        </div>
-        <div class="queue-header-actions"><button class="button button--primary" id="run-button" type="button">Rozpocznij optymalizację</button><button class="text-button" id="clear-button" type="button">Wyczyść zakończone</button></div>
-      </div>
-      <div class="queue" id="queue" aria-live="polite"></div>
-      <p class="queue-notice" id="queue-notice" role="status" hidden></p>
-      <section class="summary" id="summary" hidden aria-label="Podsumowanie kompresji"></section>
-    </section>
-
-    <section class="privacy-note">
-      <span aria-hidden="true">${shieldIcon()}</span>
-      <div><h2>Twoje obrazy nie opuszczają urządzenia</h2><p>Silnik działa w osobnym wątku przeglądarki. Nazwy i piksele nie są wysyłane do żadnego serwera.</p></div>
-    </section>
-  </main>
-  <footer class="site-footer"><span>Squeeze v0.1</span><span>JPEG · PNG · offline po załadowaniu</span></footer>
-`;
-
-const queue = new CompressionQueue();
-const dropzone = document.querySelector<HTMLDivElement>("#dropzone")!;
-const input = document.querySelector<HTMLInputElement>("#file-input")!;
-const methodInput = document.querySelector<HTMLSelectElement>("#method")!;
-const profile = document.querySelector<HTMLSelectElement>("#profile")!;
-const profileHint = document.querySelector<HTMLParagraphElement>("#profile-hint")!;
-const batchSettings = document.querySelector<HTMLElement>("#batch-settings")!;
-const expertModeInput = document.querySelector<HTMLInputElement>("#expert-mode")!;
-const effortControl = document.querySelector<HTMLFieldSetElement>("#effort-control")!;
-const queueElement = document.querySelector<HTMLDivElement>("#queue")!;
-const queueHeader = document.querySelector<HTMLDivElement>("#queue-header")!;
-const queueCount = document.querySelector<HTMLSpanElement>("#queue-count")!;
-const summary = document.querySelector<HTMLElement>("#summary")!;
-const queueNotice = document.querySelector<HTMLParagraphElement>("#queue-notice")!;
-const runButton = document.querySelector<HTMLButtonElement>("#run-button")!;
-let currentJobs: readonly CompressionJob[] = [];
-let expertMode = false;
-let searchEffort: SearchEffort = "auto";
-let method: CompressionMethod = "auto";
-let queuePaused = true;
-let summarySignature = "";
-
-dropzone.addEventListener("click", () => input.click());
-dropzone.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    input.click();
+  constructor() {
+    this.#settings = loadSettings();
+    this.applySettingsToForm();
+    this.#queue = new CompressionQueue({ autoStart: this.#settings.autoStart });
   }
-});
-input.addEventListener("change", () => {
-  addFiles(input.files);
-  input.value = "";
-});
-for (const eventName of ["dragenter", "dragover"]) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.add("is-dragging");
-  });
-}
-for (const eventName of ["dragleave", "drop"]) {
-  dropzone.addEventListener(eventName, (event) => {
-    event.preventDefault();
-    dropzone.classList.remove("is-dragging");
-  });
-}
-dropzone.addEventListener("drop", (event) => addFiles(event.dataTransfer?.files));
-profile.addEventListener("change", () => {
-  applySettingsToWaitingJobs();
-  updateOptimizationHint();
-});
-effortControl.addEventListener("change", () => {
-  searchEffort = effortControl.querySelector<HTMLInputElement>("input:checked")!.value as SearchEffort;
-  applySettingsToWaitingJobs();
-  updateOptimizationHint();
-});
-methodInput.addEventListener("change", () => {
-  method = methodInput.value as CompressionMethod;
-  const lossless = method === "lossless";
-  profile.disabled = lossless;
-  effortControl.disabled = lossless;
-  applySettingsToWaitingJobs();
-  updateOptimizationHint();
-});
-expertModeInput.addEventListener("change", () => {
-  expertMode = expertModeInput.checked;
-  renderQueue(currentJobs, queuePaused);
-});
-document.querySelector("#clear-button")!.addEventListener("click", () => queue.clearCompleted());
-runButton.addEventListener("click", () => {
-  if (queuePaused) queue.start();
-  else queue.pause();
-});
-window.addEventListener("pagehide", () => queue.dispose(), { once: true });
 
-queueElement.addEventListener("click", (event) => {
-  const button = (event.target as Element).closest<HTMLButtonElement>("button[data-action]");
-  if (!button) return;
-  const job = currentJobs.find((candidate) => candidate.id === button.dataset.id);
-  if (!job) return;
-  switch (button.dataset.action) {
-    case "cancel": queue.cancel(job.id); break;
-    case "remove": queue.remove(job.id); break;
-    case "retry": queue.retry(job.id); break;
-    case "download": downloadJob(job); break;
-    case "report": downloadReport(job); break;
-    case "compare": void openComparison(job); break;
-    case "detailed": queue.rerun(job.id, "detailed", job.method); break;
-    case "rerun-method": {
-      const nextMethod = button.closest<HTMLElement>("[data-job-id]")?.querySelector<HTMLSelectElement>("[data-method]")?.value as CompressionMethod | undefined;
-      if (nextMethod) queue.rerun(job.id, job.searchEffort, nextMethod);
-      break;
-    }
-  }
-});
-summary.addEventListener("click", (event) => {
-  if ((event.target as Element).closest("[data-download-zip]")) {
-    const button = (event.target as Element).closest<HTMLButtonElement>("[data-download-zip]")!;
-    button.disabled = true;
-    button.textContent = "Tworzenie ZIP…";
-    void downloadZip(currentJobs).catch((error: unknown) => {
-      queueNotice.hidden = false;
-      queueNotice.textContent = error instanceof Error ? error.message : String(error);
-    }).finally(() => {
-      button.disabled = false;
-      button.innerHTML = `${downloadIcon()} Pobierz ZIP`;
+  mount(): void {
+    this.#dropzone.addEventListener("click", () => this.#input.click());
+    this.#dropzone.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); this.#input.click(); }
     });
+    this.#input.addEventListener("change", () => { void this.addFiles(this.#input.files); this.#input.value = ""; });
+    for (const eventName of ["dragenter", "dragover"]) this.#dropzone.addEventListener(eventName, (event) => { event.preventDefault(); this.#dropzone.classList.add("is-dragging"); });
+    for (const eventName of ["dragleave", "drop"]) this.#dropzone.addEventListener(eventName, (event) => { event.preventDefault(); this.#dropzone.classList.remove("is-dragging"); });
+    this.#dropzone.addEventListener("drop", (event) => void this.addFiles(event.dataTransfer?.files));
+    get<HTMLFormElement>("settings").addEventListener("change", () => this.onSettingsChange());
+    this.#runButton.addEventListener("click", () => this.#paused ? this.#queue.start() : this.#queue.pause());
+    get("clear-button").addEventListener("click", () => this.#queue.clearCompleted());
+    get("download-all").addEventListener("click", () => void this.downloadAll());
+    this.#unsubscribe = this.#queue.subscribe((jobs, paused, engine, capabilities) => this.update(jobs, paused, engine, capabilities));
+    window.addEventListener("pagehide", () => this.dispose(), { once: true });
   }
-});
 
-queue.subscribe((jobs, paused) => {
-  currentJobs = jobs;
-  queuePaused = paused;
-  renderQueue(jobs, paused);
-});
+  dispose(): void { this.#unsubscribe?.(); this.#queue.dispose(); }
 
-function addFiles(files: FileList | null | undefined): void {
-  if (!files?.length) return;
-  const result = queue.add(files, { profile: profile.value as CompressionProfile, searchEffort, method });
-  if (result.rejected.length) {
-    queueNotice.hidden = false;
-    queueNotice.textContent = `Pominięto ${result.rejected.length} plik(i): obsługiwane są JPEG i PNG.`;
+  private async addFiles(files: FileList | null | undefined): Promise<void> {
+    if (!files?.length) return;
+    const candidates = Array.from(files);
+    const validation = await Promise.all(candidates.map(async (file) => ({ file, format: await detectSupportedFormat(file) })));
+    const valid = validation.flatMap(({ file, format }) => format
+      ? [new File([file], file.name, { type: `image/${format}`, lastModified: file.lastModified })]
+      : []);
+    for (const { file, format } of validation) {
+      if (!format) this.showNotice(`Nie dodano „${file.name}”. Plik nie jest prawidłowym obrazem JPEG lub PNG.`, "error");
+    }
+    const result = this.#queue.add(valid, this.queueSettings());
+    for (const file of result.rejected) this.showNotice(`Nie dodano „${file.name}”. Obsługiwane są pliki JPEG i PNG.`, "error");
   }
-}
 
-function applySettingsToWaitingJobs(): void {
-  queue.reconfigureQueued({ profile: profile.value as CompressionProfile, searchEffort, method });
-}
+  private onSettingsChange(): void {
+    this.#settings.profile = this.#profile.value as CompressionProfile;
+    this.#settings.outputFormat = this.#outputFormat.value as OutputFormat;
+    this.#settings.autoStart = this.#autoStart.checked;
+    this.#settings.method = this.#method.value as CompressionMethod;
+    this.#settings.searchEffort = this.#effort.value as SearchEffort;
+    this.#settings.expertMode = this.#expertMode.checked;
+    saveSettings(this.#settings);
+    this.#queue.setAutoStart(this.#settings.autoStart);
+    const updated = this.#queue.reconfigureQueued(this.queueSettings());
+    if (updated) this.showNotice(`Nowe ustawienia zastosowano do ${updated} oczekujących ${updated === 1 ? "obrazu" : "obrazów"}.`, "info");
+    this.updateViews();
+  }
 
-function renderQueue(jobs: readonly CompressionJob[], paused: boolean): void {
-  queueHeader.hidden = jobs.length === 0;
-  batchSettings.hidden = jobs.length === 0;
-  queueCount.textContent = `(${jobs.length})`;
-  const waiting = jobs.filter((job) => job.status === "queued").length;
-  runButton.hidden = waiting === 0;
-  runButton.textContent = paused ? `Rozpocznij optymalizację${waiting ? ` (${waiting})` : ""}` : "Wstrzymaj kolejkę";
-  runButton.className = paused ? "button button--primary" : "text-button";
-  reconcileJobs(jobs);
-  const complete = jobs.filter((job) => job.status === "complete" && job.report);
-  summary.hidden = complete.length === 0;
-  const nextSummarySignature = complete.map((job) => `${job.id}:${job.output?.byteLength}`).join("|");
-  if (complete.length && nextSummarySignature !== summarySignature) {
+  private queueSettings(): QueueSettings {
+    return { profile: this.#settings.profile, outputFormat: this.#settings.outputFormat, method: this.#settings.method, searchEffort: this.#settings.searchEffort };
+  }
+
+  private applySettingsToForm(): void {
+    this.#profile.value = this.#settings.profile;
+    this.#outputFormat.value = this.#settings.outputFormat;
+    this.#autoStart.checked = this.#settings.autoStart;
+    this.#method.value = this.#settings.method;
+    this.#effort.value = this.#settings.searchEffort;
+    this.#expertMode.checked = this.#settings.expertMode;
+  }
+
+  private update(jobs: readonly CompressionJob[], paused: boolean, engine: EngineState, capabilities?: WorkerCapabilities): void {
+    this.#jobs = jobs;
+    this.#paused = paused;
+    const hasJobs = jobs.length > 0;
+    this.#results.hidden = !hasJobs;
+    this.#dropzone.classList.toggle("is-compact", hasJobs);
+    get("queue-count").textContent = `(${jobs.length})`;
+    const complete = jobs.filter((job) => job.output && job.report).length;
+    const active = jobs.filter((job) => job.status === "processing").length;
+    const waiting = jobs.filter((job) => job.status === "queued").length;
+    get("queue-progress").textContent = active ? `${complete} gotowe · trwa kompresja` : waiting ? `${complete} gotowe · ${waiting} oczekuje` : `${complete} gotowe`;
+    this.#runButton.hidden = waiting === 0 && active === 0;
+    this.#runButton.textContent = paused ? `Kompresuj${waiting ? ` (${waiting})` : ""}` : "Wstrzymaj kolejkę";
+    this.#runButton.className = paused ? "button button--primary" : "button button--secondary";
+    this.updateEngine(engine, capabilities);
+    this.reconcileViews();
+    this.updateSummary();
+  }
+
+  private updateEngine(engine: EngineState, capabilities?: WorkerCapabilities): void {
+    const element = get("engine-status");
+    const copy = element.querySelector<HTMLElement>("span:last-child")!;
+    element.className = `engine-status engine-status--${engine}`;
+    copy.textContent = engine === "loading" ? "Przygotowuję lokalny silnik…" : engine === "error" ? "Silnik jest niedostępny. Ponów zadanie, aby spróbować ponownie." : "Silnik gotowy — przetwarzanie jest lokalne.";
+    const preserveOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="preserve"]')!;
+    const webpOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="webp"]')!;
+    preserveOption.disabled = capabilities?.preserve === false;
+    webpOption.disabled = capabilities?.webp === false;
+    if (!capabilities) return;
+    const selectedIsAvailable = this.#outputFormat.value === "preserve" ? capabilities.preserve : capabilities.webp;
+    const fallback = capabilities.preserve ? "preserve" : capabilities.webp ? "webp" : undefined;
+    if (!selectedIsAvailable && fallback) {
+      this.#outputFormat.value = fallback;
+      this.#settings.outputFormat = fallback;
+      saveSettings(this.#settings);
+      this.#queue.reconfigureQueued(this.queueSettings());
+    }
+  }
+
+  private reconcileViews(): void {
+    const ids = new Set(this.#jobs.map((job) => job.id));
+    for (const [id, view] of this.#views) if (!ids.has(id)) { view.element.remove(); this.#views.delete(id); }
+    for (const job of this.#jobs) {
+      let view = this.#views.get(job.id);
+      if (!view) {
+        view = new JobView(job, this.#queue.previewUrl(job), (action, id) => this.onJobAction(action, id));
+        this.#views.set(job.id, view);
+        this.#queueElement.append(view.element);
+      }
+      view.update(job, this.#settings.expertMode);
+    }
+  }
+
+  private updateViews(): void { for (const job of this.#jobs) this.#views.get(job.id)?.update(job, this.#settings.expertMode); }
+
+  private onJobAction(action: JobAction, id: string): void {
+    const job = this.#jobs.find((candidate) => candidate.id === id);
+    if (!job) return;
+    if (action === "cancel") this.#queue.cancel(id);
+    else if (action === "remove") this.#queue.remove(id);
+    else if (action === "retry") job.status === "complete" ? this.#queue.rerun(id, this.queueSettings()) : this.#queue.retry(id);
+    else if (action === "download") downloadJob(job);
+    else if (action === "report") downloadReport(job);
+    else if (action === "compare") openComparison(job, document.activeElement as HTMLElement);
+  }
+
+  private updateSummary(): void {
+    const complete = this.#jobs.filter((job) => job.output && job.report);
+    this.#summary.hidden = complete.length === 0;
+    if (!complete.length) return;
     const original = complete.reduce((sum, job) => sum + job.file.size, 0);
-    const optimized = complete.reduce((sum, job) => sum + (job.output?.byteLength ?? 0), 0);
-    const saved = Math.max(0, original - optimized);
-    summary.innerHTML = `
-      <div><p class="eyebrow">Podsumowanie</p><strong>${formatBytes(saved)}</strong><span>mniej na ${complete.length} ${plural(complete.length)}</span></div>
-      <div class="summary-meter" aria-label="Oszczędzono ${original ? Math.round((saved / original) * 100) : 0} procent"><i style="--saved:${original ? (saved / original) * 100 : 0}%"></i></div>
-      <button class="button button--primary" type="button" data-download-zip>${downloadIcon()} Pobierz ZIP</button>
-    `;
+    const optimized = complete.reduce((sum, job) => sum + job.report!.optimizedSize, 0);
+    const delta = original - optimized;
+    get("summary-label").textContent = delta >= 0 ? "Łączna oszczędność" : "Zmiana rozmiaru";
+    get("summary-saving").textContent = `${delta >= 0 ? "−" : "+"}${formatBytes(Math.abs(delta))}`;
+    get("summary-detail").textContent = `${complete.length} ${complete.length === 1 ? "gotowy obraz" : "gotowe obrazy"} · ${original ? Math.abs(delta / original * 100).toFixed(1) : "0"}%`;
+    get("download-all").querySelector("span")!.textContent = complete.length === 1 ? "Pobierz obraz" : `Pobierz wszystkie (${complete.length})`;
   }
-  summarySignature = nextSummarySignature;
+
+  private async downloadAll(): Promise<void> {
+    const complete = this.#jobs.filter((job) => job.output);
+    if (complete.length === 1) { downloadJob(complete[0]!); return; }
+    const button = get<HTMLButtonElement>("download-all");
+    button.disabled = true;
+    try { await downloadZip(complete); }
+    catch (error) { this.showNotice(error instanceof Error ? error.message : String(error), "error"); }
+    finally { button.disabled = false; }
+  }
+
+  private showNotice(message: string, kind: "info" | "error"): void {
+    const template = document.querySelector<HTMLTemplateElement>("#notice-template")!;
+    const notice = template.content.firstElementChild!.cloneNode(true) as HTMLElement;
+    notice.classList.add(`notice--${kind}`);
+    notice.querySelector("span")!.textContent = message;
+    notice.querySelector("button")!.addEventListener("click", () => notice.remove());
+    get("notices").append(notice);
+  }
 }
 
-function reconcileJobs(jobs: readonly CompressionJob[]): void {
-  const ids = new Set(jobs.map((job) => job.id));
-  for (const element of Array.from(queueElement.children)) {
-    if (!ids.has((element as HTMLElement).dataset.jobId!)) element.remove();
-  }
-  for (const job of jobs) {
-    const current = queueElement.querySelector<HTMLElement>(`[data-job-id="${job.id}"]`);
-    if (!current) {
-      const next = document.createElement("template");
-      next.innerHTML = renderJob(job);
-      queueElement.append(next.content.firstElementChild!);
-    } else {
-      patchJob(current, job);
+function get<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
+
+async function detectSupportedFormat(file: File): Promise<"jpeg" | "png" | undefined> {
+  if (file.size === 0 || file.size > 100 * 1024 * 1024) return undefined;
+  const bytes = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+  const png = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+    && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
+  const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (png) return "png";
+  if (jpeg) return "jpeg";
+  return undefined;
+}
+
+async function bootstrap(): Promise<void> {
+  new AppController().mount();
+  if (import.meta.env.PROD && "serviceWorker" in navigator) {
+    try {
+      await navigator.serviceWorker.register("/sw.js");
+    } catch (error) {
+      console.warn("Nie udało się przygotować trybu offline.", error);
     }
   }
 }
 
-function renderJob(job: CompressionJob): string {
-  const report = job.report;
-  const status = statusMarkup(job);
-  const reduction = report && !report.alreadyOptimized ? `<span class="saving">−${report.savedPercent.toFixed(1)}%</span>` : "";
-  return `
-    <article class="job job--${job.status}" data-job-id="${job.id}">
-      <div class="file-icon file-preview" aria-hidden="true"><img src="${queue.previewUrl(job)}" alt="" />${imageIcon()}</div>
-      <div class="job-main">
-        <div class="job-heading"><h3 title="${escapeHtml(job.file.name)}">${escapeHtml(job.file.name)}</h3>${reduction}</div>
-        <div class="job-meta"><span>${formatBytes(job.file.size)}</span><i></i><span>${methodName(job)}</span><i></i><span>${profileName(job.profile)}</span><i></i><span>${effortName(job.searchEffort)}${job.sourceJobId ? " · ponowienie" : ""}</span></div>
-        <div class="job-status" data-job-status>${status}</div>
-        <div data-job-extra>${jobExtra(job)}</div>
-      </div>
-      <div class="job-result">
-        <div data-job-result>${jobResult(job)}</div>
-        <div class="job-actions" data-job-actions>${jobActions(job)}</div>
-      </div>
-    </article>
-  `;
-}
-
-function patchJob(element: HTMLElement, job: CompressionJob): void {
-  element.className = `job job--${job.status}`;
-  const status = element.querySelector<HTMLElement>("[data-job-status]")!;
-  replaceHtmlIfChanged(status.querySelector<HTMLElement>("[data-status-icon]")!, statusIcon(job));
-  const statusCopy = status.querySelector<HTMLElement>("[data-status-copy]")!;
-  const message = statusMessage(job);
-  if (statusCopy.textContent !== message) statusCopy.textContent = message;
-  replaceHtmlIfChanged(element.querySelector<HTMLElement>("[data-job-extra]")!, jobExtra(job));
-  replaceHtmlIfChanged(element.querySelector<HTMLElement>("[data-job-result]")!, jobResult(job));
-  replaceHtmlIfChanged(element.querySelector<HTMLElement>("[data-job-actions]")!, jobActions(job));
-  const heading = element.querySelector<HTMLElement>(".job-heading")!;
-  const saving = heading.querySelector(".saving");
-  const report = job.report;
-  const reduction = report && !report.alreadyOptimized ? `−${report.savedPercent.toFixed(1)}%` : undefined;
-  if (reduction) {
-    if (saving && saving.textContent !== reduction) saving.textContent = reduction;
-    else if (!saving) heading.insertAdjacentHTML("beforeend", `<span class="saving">${reduction}</span>`);
-  } else {
-    saving?.remove();
-  }
-}
-
-function replaceHtmlIfChanged(element: HTMLElement, html: string): void {
-  if (element.innerHTML !== html) element.innerHTML = html;
-}
-
-function jobExtra(job: CompressionJob): string {
-  const report = job.report;
-  return `${job.error ? `<p class="job-error">${escapeHtml(job.error)}</p>` : ""}${report?.warnings.length ? `<details><summary>Uwagi silnika (${report.warnings.length})</summary><ul>${report.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></details>` : ""}${expertMode && report ? expertDetails(report) : ""}`;
-}
-
-function jobResult(job: CompressionJob): string {
-  const report = job.report;
-  return report ? `<div><strong>${formatBytes(report.optimizedSize)}</strong><span>${report.alreadyOptimized ? "Nie znaleziono mniejszego wyniku" : `Zaoszczędzono ${formatBytes(report.savedBytes)}`}</span></div>` : "";
-}
-
-function expertDetails(report: NonNullable<CompressionJob["report"]>): string {
-  const metric = (value: number | null) => value === null ? "—" : value.toFixed(3);
-  const strategy = [
-    report.strategy.encoder,
-    report.strategy.quality === null ? null : `Q${report.strategy.quality}`,
-    report.strategy.chromaSubsampling,
-    report.strategy.paletteColors === null ? null : `${report.strategy.paletteColors} kolorów`,
-    report.strategy.dithering,
-  ].filter(Boolean).join(" · ");
-  return `<dl class="expert-details"><div><dt>SSIMULACRA2</dt><dd>${metric(report.metrics.ssimulacra2)}</dd></div><div><dt>Butteraugli</dt><dd>${metric(report.metrics.butteraugli)}</dd></div><div><dt>Strategia</dt><dd>${escapeHtml(strategy)}</dd></div><div><dt>Kandydaci</dt><dd>${report.candidatesTested}</dd></div><div><dt>Czas</dt><dd>${Math.round(report.processingTimeMs)} ms</dd></div><div><dt>Typ</dt><dd>${report.analysis.kind}</dd></div></dl>`;
-}
-
-function jobActions(job: CompressionJob): string {
-  if (job.status === "processing" || job.status === "queued") {
-    return `<button class="button button--ghost" type="button" data-action="cancel" data-id="${job.id}">Anuluj</button>`;
-  }
-  if (job.status === "error" || job.status === "cancelled") {
-    return `<button class="button button--secondary" type="button" data-action="retry" data-id="${job.id}">Spróbuj ponownie</button><button class="icon-button" type="button" data-action="remove" data-id="${job.id}" aria-label="Usuń plik">${trashIcon()}</button>`;
-  }
-  const detailed = job.searchEffort === "auto" && job.method === "search" ? `<button class="button button--ghost" type="button" data-action="detailed" data-id="${job.id}">Szukaj dokładniej</button>` : "";
-  const methodPicker = isPngJob(job) ? `<label class="job-method"><span>Metoda</span><select data-method aria-label="Metoda dla ${escapeHtml(job.file.name)}"><option value="auto"${job.method === "auto" ? " selected" : ""}>Smart</option><option value="search"${job.method === "search" ? " selected" : ""}>Porównaj metody</option><option value="lossless"${job.method === "lossless" ? " selected" : ""}>Bezstratna</option><option value="palette"${job.method === "palette" ? " selected" : ""}>Paleta</option></select></label><button class="button button--ghost" type="button" data-action="rerun-method" data-id="${job.id}">Przelicz</button>` : "";
-  return `${detailed}${methodPicker}<button class="icon-button" type="button" data-action="compare" data-id="${job.id}" aria-label="Porównaj obrazy" title="Porównaj">${compareIcon()}</button><button class="icon-button" type="button" data-action="report" data-id="${job.id}" aria-label="Pobierz raport JSON" title="Raport JSON">${reportIcon()}</button><button class="button button--secondary" type="button" data-action="download" data-id="${job.id}">${downloadIcon()} Pobierz</button><button class="icon-button" type="button" data-action="remove" data-id="${job.id}" aria-label="Usuń plik">${trashIcon()}</button>`;
-}
-
-function statusMarkup(job: CompressionJob): string {
-  return `<span data-status-icon>${statusIcon(job)}</span><span data-status-copy>${statusMessage(job)}</span>`;
-}
-
-function statusIcon(job: CompressionJob): string {
-  if (job.status === "queued" || job.status === "cancelled") return `<span class="status-dot"></span>`;
-  if (job.status === "complete") return `<span class="status-check">✓</span>`;
-  if (job.status === "error") return `<span class="status-error">!</span>`;
-  return `<span class="spinner" aria-hidden="true"></span>`;
-}
-
-function statusMessage(job: CompressionJob): string {
-  if (job.status === "queued") return "Czeka w kolejce";
-  if (job.status === "processing") {
-    const candidate = job.candidate && job.total ? ` · wariant ${job.candidate}/${job.total}` : "";
-    return `${stageName(job.stage)}${candidate}`;
-  }
-  if (job.status === "complete") return "Gotowe";
-  if (job.status === "cancelled") return "Anulowano";
-  return "Nie udało się";
-}
-
-function stageName(stage?: ProgressStage): string {
-  return ({ decoding: "Dekodowanie", analyzing: "Analiza obrazu", searching: "Szukanie najlepszego wariantu", measuring: "Pomiar jakości", finalizing: "Finalizacja" } as Record<ProgressStage, string>)[stage ?? "decoding"];
-}
-
-function profileDescription(value: CompressionProfile): string {
-  return ({ maximumQuality: "Najwyższa wierność; subtelne oszczędności.", balanced: "Najlepszy balans jakości, rozmiaru i czasu.", maximumCompression: "Mniejszy plik przy nadal kontrolowanej jakości.", lossless: "Bez zmiany wartości pikseli." })[value];
-}
-
-function updateOptimizationHint(): void {
-  if (method === "lossless") {
-    profileHint.textContent = "Jeden silnik: bezstratna rekompresja PNG. Piksele, alpha i profil koloru pozostają identyczne.";
-    return;
-  }
-  if (method === "palette") {
-    profileHint.textContent = "Jeden silnik: paleta PNG. Wynik musi przejść wybrany próg jakości, inaczej zachowamy oryginał.";
-    return;
-  }
-  if (method === "search") {
-    profileHint.textContent = searchEffort === "detailed"
-      ? "Porównuje więcej kandydatów przy tym samym progu jakości. To najwolniejszy, najbardziej dociekliwy tryb."
-      : "Porównuje paletę i bezstratną kompresję PNG, a potem zostawia najmniejszy poprawny wynik.";
-    return;
-  }
-  profileHint.textContent = "Smart wybiera jeden bezpieczny silnik dla każdego PNG. To najszybszy tryb dla całej kolejki.";
-}
-
-function profileName(value: CompressionProfile): string {
-  return ({ maximumQuality: "Maks. jakość", balanced: "Zbalansowany", maximumCompression: "Maks. kompresja", lossless: "Bezstratny" })[value];
-}
-
-function effortName(value: SearchEffort): string { return value === "detailed" ? "Dokładnie" : "Auto"; }
-function isPngJob(job: CompressionJob): boolean { return job.file.type === "image/png" || /\.png$/i.test(job.file.name); }
-function methodName(job: CompressionJob): string {
-  if (!isPngJob(job)) return "MozJPEG";
-  return ({ auto: "Smart", search: "Porównaj metody", lossless: "Bezstratna", palette: "Paleta" })[job.method];
-}
-
-export function formatBytes(value: number): string {
-  if (value < 1024) return `${value} B`;
-  const units = ["KB", "MB", "GB"];
-  let size = value / 1024;
-  let unit = units[0]!;
-  for (let index = 1; size >= 1024 && index < units.length; index += 1) {
-    size /= 1024;
-    unit = units[index]!;
-  }
-  return `${size >= 10 ? size.toFixed(1) : size.toFixed(2)} ${unit}`;
-}
-
-function plural(value: number): string { return value === 1 ? "obrazie" : "obrazach"; }
-function escapeHtml(value: string): string { return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]!); }
-function svg(path: string): string { return `<svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`; }
-function sparkIcon(): string { return svg('<path d="M12 2 9.8 8.1 4 10.5l5.8 2.2L12 19l2.2-6.3 5.8-2.2-5.8-2.4L12 2Z"/>'); }
-function lockIcon(): string { return svg('<rect x="5.5" y="10" width="13" height="10" rx="3"/><path d="M8.5 10V7a3.5 3.5 0 0 1 7 0v3"/>'); }
-function shieldIcon(): string { return svg('<path d="M12 3 5 6v5c0 4.6 2.8 7.8 7 10 4.2-2.2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/>'); }
-function uploadIcon(): string { return svg('<path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 15v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3"/>'); }
-function imageIcon(): string { return svg('<rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9" r="1.5"/><path d="m4 17 5-5 3.5 3 2.5-2 5 4"/>'); }
-function downloadIcon(): string { return svg('<path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/>'); }
-function trashIcon(): string { return svg('<path d="M4 7h16m-10-3h4m-7 3 .7 13h8.6L17 7M10 11v5m4-5v5"/>'); }
-function compareIcon(): string { return svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14m-3-9-3 2 3 2m6-4 3 2-3 2"/>'); }
-function reportIcon(): string { return svg('<path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h4M10 12h5m-5 4h5"/>'); }
+void bootstrap();

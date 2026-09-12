@@ -4,7 +4,7 @@ use optimizer_core::{
 };
 use wasm_bindgen::prelude::*;
 
-const WORKER_API_VERSION: u8 = 2;
+const WORKER_API_VERSION: u8 = 3;
 
 struct JsProgress<'a>(&'a Function);
 

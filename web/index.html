@@ -4,20 +4,106 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#f6f4ef" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' ws://localhost:*; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
-    />
-    <meta
-      name="description"
-      content="Prywatna, lokalna kompresja JPEG i PNG bez wysyłania plików."
-    />
-    <title>Squeeze — inteligentna kompresja obrazów</title>
+    <meta name="theme-color" content="#f3f1eb" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' ws://localhost:*; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
+    <meta name="description" content="Lokalna kompresja i konwersja JPEG oraz PNG bez wysyłania plików." />
+    <title>Squeeze — lokalna kompresja obrazów</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <header class="site-header">
+        <a class="brand" href="#compressor" aria-label="Squeeze — kompresor obrazów">
+          <svg aria-hidden="true" viewBox="0 0 32 32"><path d="M8 7h16M8 25h16M11 11l5 5 5-5M11 21l5-5 5 5" /></svg>
+          <span>Squeeze</span>
+        </a>
+        <span class="local-status"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 7.8 7 10 4.2-2.2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg> Pliki zostają tutaj</span>
+      </header>
+
+      <main id="compressor">
+        <header class="intro">
+          <h1>Zmniejsz obrazy.<br><span>Zachowaj jakość.</span></h1>
+          <p>Squeeze dobiera kompresję do obrazu, porównuje wyniki i działa w całości na Twoim urządzeniu.</p>
+        </header>
+
+        <section class="tool" aria-label="Kompresor obrazów">
+          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-describedby="drop-hint">
+            <input id="file-input" type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" multiple hidden />
+            <svg class="dropzone__icon" aria-hidden="true" viewBox="0 0 32 32"><path d="M16 22V7m0 0-6 6m6-6 6 6"/><path d="M6 21v3a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-3"/></svg>
+            <div><h2>Dodaj obrazy</h2><p id="drop-hint">Przeciągnij tutaj albo <span>wybierz pliki</span></p></div>
+            <p class="dropzone__limits">JPEG i PNG · do 100 MB · maks. 24 MP</p>
+          </div>
+
+          <form class="settings" id="settings" aria-label="Ustawienia kompresji">
+            <label><span>Jakość</span><select id="profile"><option value="maximumQuality">Bardzo wysoka</option><option value="balanced" selected>Zbalansowana</option><option value="maximumCompression">Mniejszy plik</option></select></label>
+            <label><span>Format wyniku</span><select id="output-format"><option value="preserve" selected>Zachowaj format</option><option value="webp">WebP</option></select></label>
+            <label class="switch"><span><strong>Kompresuj od razu</strong><small>Po dodaniu plików</small></span><input id="auto-start" type="checkbox" checked /><i aria-hidden="true"></i></label>
+            <details class="advanced">
+              <summary>Ustawienia zaawansowane</summary>
+              <div class="advanced__content">
+                <label><span>Strategia PNG</span><select id="method"><option value="auto" selected>Smart</option><option value="search">Pełne porównanie</option><option value="lossless">Bezstratna</option><option value="palette">Redukcja kolorów</option></select></label>
+                <label><span>Dokładność szukania</span><select id="effort"><option value="auto" selected>Standardowa</option><option value="detailed">Dokładna</option></select></label>
+                <label class="checkbox"><input id="expert-mode" type="checkbox" /> Pokaż dane techniczne</label>
+              </div>
+            </details>
+          </form>
+
+          <div class="engine-status" id="engine-status" role="status"><span class="spinner"></span><span>Przygotowuję lokalny silnik…</span></div>
+          <div class="notices" id="notices" aria-live="polite"></div>
+
+          <section class="results" id="results" hidden aria-labelledby="results-title">
+            <header class="results__header">
+              <div><h2 id="results-title">Twoje obrazy <span id="queue-count"></span></h2><p id="queue-progress"></p></div>
+              <div class="results__actions"><button class="button button--quiet" id="clear-button" type="button">Usuń zakończone</button><button class="button button--primary" id="run-button" type="button">Kompresuj</button></div>
+            </header>
+            <div class="queue" id="queue" aria-live="polite"></div>
+            <footer class="summary" id="summary" hidden>
+              <div><span id="summary-label">Łączna oszczędność</span><strong id="summary-saving"></strong><small id="summary-detail"></small></div>
+              <button class="button button--primary" id="download-all" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"/></svg><span>Pobierz wszystkie</span></button>
+            </footer>
+          </section>
+        </section>
+
+        <p class="privacy-copy"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.6 2.8 7.8 7 10 4.2-2.2 7-5.4 7-10V6l-7-3Z"/><path d="m9 12 2 2 4-4"/></svg><span><strong>Prywatność jest częścią konstrukcji.</strong> Obrazy są przetwarzane w osobnym wątku przeglądarki. Aplikacja nie wysyła nazw ani pikseli.</span></p>
+      </main>
+      <footer class="site-footer"><span>Squeeze v0.2</span><span>JPEG · PNG · WebP · lokalnie</span></footer>
+    </div>
+
+    <template id="notice-template"><div class="notice"><span></span><button type="button" aria-label="Zamknij komunikat"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></template>
+    <template id="job-template">
+      <article class="job">
+        <div class="job__preview" aria-hidden="true"></div>
+        <div class="job__body">
+          <div class="job__title"><h3></h3><span class="job__change"></span></div>
+          <div class="job__sizes"><span data-original></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-4-4 4 4-4 4"/></svg><strong data-output></strong></div>
+          <div class="job__status"><span data-status-icon></span><span data-status-copy></span></div>
+          <progress max="1" hidden></progress>
+          <p class="job__error" hidden></p>
+          <details class="job__details" hidden><summary>Szczegóły</summary><div></div></details>
+        </div>
+        <div class="job__actions">
+          <button class="button button--quiet" type="button" data-action="compare">Porównaj</button>
+          <button class="button button--secondary" type="button" data-action="download">Pobierz</button>
+          <button class="icon-button" type="button" data-action="report" aria-label="Pobierz raport JSON"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h4M10 12h5m-5 4h5"/></svg></button>
+          <button class="button button--quiet" type="button" data-action="retry">Spróbuj ponownie</button>
+          <button class="button button--quiet" type="button" data-action="cancel">Anuluj</button>
+          <button class="icon-button" type="button" data-action="remove" aria-label="Usuń obraz"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16m-10-3h4m-7 3 .7 13h8.6L17 7M10 11v5m4-5v5"/></svg></button>
+        </div>
+      </article>
+    </template>
+
+    <template id="compare-template">
+      <dialog class="compare-dialog">
+        <div class="compare-shell">
+          <header><div><h2></h2><p></p></div><button class="icon-button" type="button" data-close aria-label="Zamknij porównanie"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></header>
+          <div class="compare-stage" data-stage>
+            <div class="compare-content" data-content><div data-before></div><div class="compare-after" data-after></div></div>
+            <span class="compare-label compare-label--before">Oryginał</span><span class="compare-label compare-label--after">Wynik</span>
+            <div class="compare-divider" data-divider role="slider" tabindex="0" aria-label="Pozycja porównania" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50"><span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 7-5 5 5 5M15 7l5 5-5 5"/></svg></span></div>
+          </div>
+          <footer><label><span>Powiększenie</span><input data-zoom type="range" min="100" max="400" step="25" value="100" /><output>100%</output></label><button class="button button--secondary" type="button" data-actual>Skala 1:1</button></footer>
+        </div>
+      </dialog>
+    </template>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-

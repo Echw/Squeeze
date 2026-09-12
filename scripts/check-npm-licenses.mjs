@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const allowed = new Set(["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib"]);
 const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const root = join(workspaceRoot, "web", "node_modules");
+const root = join(workspaceRoot, "node_modules");
 const packages = new Map();
 
 function visit(directory) {
@@ -32,7 +32,7 @@ function isAllowed(expression) {
 }
 
 if (!existsSync(root)) {
-  console.error("Brak web/node_modules; najpierw uruchom npm --prefix web ci.");
+  console.error("Brak node_modules; najpierw uruchom npm ci w katalogu repozytorium.");
   process.exit(1);
 }
 visit(root);

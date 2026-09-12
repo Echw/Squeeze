@@ -75,24 +75,7 @@ pub(crate) fn optimize_png(
             progress,
             cancellation,
             options.limits,
-        );
-    }
-
-    // Smart mode deliberately commits to one suitable strategy. A photographic
-    // or high-colour PNG has little chance of passing a palette conversion, so
-    // avoid spending seconds measuring candidates that cannot win. Users can
-    // opt into `Search` when they want to compare every compatible strategy.
-    if options.method == CompressionMethod::Auto && !should_try_palette(&analysis) {
-        return optimize_lossless(
-            input,
-            width,
-            height,
-            analysis,
-            vec!["Smart wybrał bezstratną ścieżkę dla obrazu o dużej liczbie kolorów. Wybierz „Porównaj metody”, aby sprawdzić także paletę PNG.".into()],
-            1,
-            progress,
-            cancellation,
-            options.limits,
+            None,
         );
     }
 
@@ -113,7 +96,8 @@ pub(crate) fn optimize_png(
     let candidate_budget = match options.method {
         // Smart evaluates only the closest palette candidates. The full budget
         // remains available to the explicit palette and comparison modes.
-        CompressionMethod::Auto => rules.candidate_budget.min(3),
+        CompressionMethod::Auto if should_try_palette(&analysis) => rules.candidate_budget.min(3),
+        CompressionMethod::Auto => rules.candidate_budget.min(2),
         _ => rules.candidate_budget,
     };
     progress.report(ProgressEvent {
@@ -209,10 +193,20 @@ pub(crate) fn optimize_png(
             progress,
             cancellation,
             options.limits,
+            None,
         );
     };
-    if options.method == CompressionMethod::Search
-        && smallest_oxipng(input, options.limits)?.len() < winner.bytes.len()
+    let lossless = if matches!(
+        options.method,
+        CompressionMethod::Auto | CompressionMethod::Search
+    ) {
+        Some(smallest_oxipng(input, options.limits)?)
+    } else {
+        None
+    };
+    if lossless
+        .as_ref()
+        .is_some_and(|candidate| candidate.len() < winner.bytes.len())
     {
         return optimize_lossless(
             input,
@@ -224,6 +218,7 @@ pub(crate) fn optimize_png(
             progress,
             cancellation,
             options.limits,
+            lossless,
         );
     }
     if winner.bytes.len() >= input.len() {
@@ -296,6 +291,7 @@ fn optimize_lossless(
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
     limits: ResourceLimits,
+    precomputed: Option<Vec<u8>>,
 ) -> Result<OptimizationResult, OptimizeError> {
     #[cfg(target_arch = "wasm32")]
     warnings.push(
@@ -307,7 +303,10 @@ fn optimize_lossless(
         candidate: None,
         total: None,
     });
-    let optimized = smallest_oxipng(input, limits)?;
+    let optimized = match precomputed {
+        Some(bytes) => bytes,
+        None => smallest_oxipng(input, limits)?,
+    };
     if optimized.len() >= input.len() {
         warnings.push("PNG był już zoptymalizowany.".into());
         return Ok(passthrough(
@@ -624,7 +623,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn smart_avoids_palette_for_high_colour_photographs() {
+    fn smart_limits_palette_budget_for_high_colour_photographs() {
         let photo = ImageAnalysis {
             kind: ContentKind::Photo,
             entropy: 7.2,

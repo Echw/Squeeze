@@ -1,7 +1,7 @@
 /target
+/node_modules
 /web/node_modules
 /web/dist
 /web/public/wasm
 *.tmp
 .DS_Store
-

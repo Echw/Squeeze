@@ -1,4 +1,4 @@
-export const WORKER_API_VERSION = 2 as const;
+export const WORKER_API_VERSION = 3 as const;
 
 export type CompressionProfile =
   | "maximumQuality"
@@ -74,18 +74,25 @@ export interface OptimizationReport {
 
 export type WorkerRequest =
   | {
-      version: 2;
+      version: 3;
       type: "compress";
       jobId: string;
       attempt: number;
       buffer: ArrayBuffer;
       options: OptimizationOptions;
     }
-  | { version: 2; type: "cancel"; jobId: string; attempt: number };
+  | { version: 3; type: "cancel"; jobId: string; attempt: number };
+
+export interface WorkerCapabilities {
+  preserve: boolean;
+  webp: boolean;
+  maxPixels: number;
+}
 
 export type WorkerResponse =
+  | { version: 3; type: "ready"; capabilities: WorkerCapabilities }
   | {
-      version: 2;
+      version: 3;
       type: "progress";
       jobId: string;
       attempt: number;
@@ -94,7 +101,7 @@ export type WorkerResponse =
       total?: number;
     }
   | {
-      version: 2;
+      version: 3;
       type: "complete";
       jobId: string;
       attempt: number;
@@ -102,7 +109,7 @@ export type WorkerResponse =
       buffer: ArrayBuffer;
     }
   | {
-      version: 2;
+      version: 3;
       type: "error";
       jobId: string;
       attempt: number;
@@ -110,7 +117,7 @@ export type WorkerResponse =
       message: string;
       recoverable: boolean;
     }
-  | { version: 2; type: "cancelled"; jobId: string; attempt: number };
+  | { version: 3; type: "cancelled"; jobId: string; attempt: number };
 
 export type JobStatus = "queued" | "processing" | "complete" | "error" | "cancelled";
 
@@ -131,4 +138,8 @@ export interface CompressionJob {
   report?: OptimizationReport;
   output?: Uint8Array;
   error?: string;
+  errorCode?: string;
+  recoverable?: boolean;
+  /** True while a completed result remains downloadable during a new attempt. */
+  isReprocessing?: boolean;
 }
