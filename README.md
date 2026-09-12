@@ -1,42 +1,29 @@
-# Squeeze — lokalna inteligentna kompresja obrazów
+# Squeeze
 
-Squeeze kompresuje JPEG i PNG, opcjonalnie konwertuje je do WebP i działa lokalnie
-w przeglądarce. Nie wysyła plików ani ich nazw do sieci. Kompresja zachowująca
-format korzysta ze wspólnego pipeline'u Rust używanego przez CLI i WebAssembly;
-lokalna konwersja WebP działa przez libwebp w Workerze.
+Squeeze to lokalna aplikacja do kompresji JPEG i PNG oraz opcjonalnej konwersji
+do WebP. Interfejs działa w przeglądarce, a obrazy, ich nazwy i piksele nie są
+wysyłane na serwer.
 
-## Stan v1
+Projekt łączy:
 
-- JPEG: adaptacyjne przeszukiwanie jakości i podpróbkowania przez `mozjpeg-rs`,
-  SSIMULACRA2 oraz Butteraugli dla finalistów.
-- PNG: OxiPNG lossless w CLI; ograniczone porównanie wariantów quantette i lossless
-  dla nieprzezroczystych PNG 8-bit w CLI/WASM,
-  z bezpiecznym passthrough lossless dla alpha i PNG 16-bit w przeglądarce.
-- Przeglądarka: autostart z zapamiętywanym ustawieniem, pojedynczy Worker,
-  transferables, anulowanie przez restart Workera, kolejka wielu plików,
-  pobieranie, ZIP, porównanie przed/po, WebP i raport JSON.
-- Prywatność: po załadowaniu aplikacja nie potrzebuje sieci. CSP blokuje połączenia.
+- Vite i vanilla TypeScript dla interfejsu;
+- Rust kompilowany do WebAssembly dla JPEG i PNG;
+- dostarczany z aplikacją `@jsquash/webp` dla WebP;
+- pojedynczy Worker do ograniczenia zużycia pamięci podczas kompresji.
 
-Jpegli nie jest zależnością produkcyjną. Dostępny wrapper Rust ma licencję AGPL/
-commercial, więc nie spełnia allowlisty. Natywny Jpegli można później dodać wyłącznie
-jako oddzielny adapter benchmarkowy na licencji BSD, jeśli przejdzie bramkę WASM.
+## Uruchomienie od zera
 
-## Instalacja i uruchomienie aplikacji w przeglądarce
+Wszystkie polecenia wykonuj w katalogu głównym repozytorium, obok tego pliku.
 
-Poniższe kroki przygotowują **pełną aplikację**: interfejs oraz lokalny silnik
-kompresji WebAssembly. Wszystko wykonuj w katalogu głównym repozytorium, czyli
-tam, gdzie znajduje się ten plik `README.md`.
+### Wymagania
 
-### 1. Zainstaluj wymagane narzędzia (jednorazowo)
+- Node.js `20.19+` albo `22.12+`;
+- npm;
+- Rust `1.90+` instalowany przez [rustup](https://rustup.rs/);
+- target Rust `wasm32-unknown-unknown`;
+- `wasm-bindgen-cli` `0.2.128`.
 
-Potrzebujesz:
-
-- Node.js 20 lub nowszego (razem z `npm`),
-- Rust 1.90 lub nowszego (`rustc` i `cargo`),
-- `wasm-bindgen-cli` w wersji zgodnej z zależnością `wasm-bindgen` projektu.
-
-Najprościej zainstalować Rust przez [rustup](https://rustup.rs/). Po instalacji
-otwórz nowe okno terminala i sprawdź, czy narzędzia są dostępne:
+Sprawdź środowisko:
 
 ```sh
 node --version
@@ -45,86 +32,161 @@ rustc --version
 cargo --version
 ```
 
-Następnie zainstaluj narzędzie wiążące moduł Rust z przeglądarką:
+Przygotuj narzędzia WASM. Te dwa polecenia wykonuje się jednorazowo:
 
 ```sh
+rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.128 --locked
-wasm-bindgen --version
 ```
 
-`wasm-pack` jest obsługiwany jako zapasowy mechanizm budowania, ale nie jest
-potrzebny w standardowym środowisku projektu.
-
-Jeżeli któreś z poleceń zwraca komunikat „command not found”, zamknij i otwórz
-terminal ponownie. Na Windows warto upewnić się, że terminal został otwarty po
-instalacji Rust; instalator dodaje katalog z narzędziami do `PATH`.
-
-### 2. Pobierz zależności
-
-W katalogu projektu uruchom:
+Następnie zainstaluj zależności i uruchom pełne środowisko developerskie:
 
 ```sh
 npm ci
-```
-
-Repozytorium używa npm workspaces i jednego lockfile w katalogu głównym. Polecenie
-instaluje dokładny zestaw zależności frontendu i lokalnego kodeka WebP.
-
-### 3. Uruchom aplikację
-
-```sh
 npm run dev
 ```
 
-Pierwsze uruchomienie buduje silnik WASM. Potem skrypt wykrywa zmiany w `crates/`
-i manifestach Cargo, przebudowuje tylko wtedy, gdy jest to potrzebne, a Vite
-odświeża aplikację. Terminal pokaże lokalny adres, zwykle
-`http://localhost:5173/`. Otwórz go w przeglądarce. Pozostaw ten terminal otwarty
-podczas pracy; aby zatrzymać serwer, naciśnij `Ctrl+C`.
+Vite wypisze adres aplikacji, zwykle <http://localhost:5173/>. Serwer zatrzymasz
+przez `Ctrl+C`.
 
-Jeśli aplikacja po wybraniu obrazu zgłasza „Nie znaleziono silnika WASM”, wróć do
-kroku 3, sprawdź komunikat budowania WASM i odśwież stronę. Sam serwer frontendu
-może się uruchomić bez Rust/WASM, ale kompresja obrazów wtedy nie działa.
+Repozytorium jest npm workspace'em z jednym plikiem `package-lock.json` w katalogu
+głównym. Nie uruchamiaj osobnego `npm install` w `web/`.
 
-### Szybka lista poleceń
+## Jak działa development
 
-Gdy środowisko jest już przygotowane, przy kolejnych uruchomieniach wystarczy:
+`npm run dev` jest podstawowym poleceniem do codziennej pracy. Przy starcie:
+
+1. sprawdza, czy artefakty WASM istnieją i są aktualne;
+2. w razie potrzeby buduje Rust dla `wasm32-unknown-unknown`;
+3. uruchamia Vite;
+4. obserwuje źródła Rust i automatycznie przebudowuje WASM po zmianach.
+
+Zmiany w TypeScript, HTML i SCSS obsługuje Vite. Zmiany w `crates/optimizer-core`
+lub `crates/optimizer-wasm` uruchamiają przebudowę silnika bez restartowania całego
+środowiska.
+
+Do pracy wyłącznie nad interfejsem możesz użyć:
 
 ```sh
-npm run dev
+npm run dev:web
 ```
 
-Do pracy wyłącznie nad układem użyj `npm run dev:web`; wymaga to istniejącego,
-aktualnego artefaktu WASM. Do jednorazowego ręcznego zbudowania silnika użyj
-`npm run build:wasm`.
+To polecenie nie buduje i nie obserwuje Rusta. Na świeżym klonie najpierw uruchom
+`npm run build:wasm`; w przeciwnym razie UI się otworzy, ale kompresja zachowująca
+format nie będzie dostępna.
 
-CLI:
+## Polecenia
 
-CLI działa niezależnie od przeglądarki, ale również wymaga Rusta. Przykłady:
+| Polecenie | Zastosowanie |
+| --- | --- |
+| `npm run dev` | Pełny development: WASM, automatyczna przebudowa Rusta i Vite |
+| `npm run dev:web` | Tylko Vite, z już zbudowanym WASM |
+| `npm run build:wasm` | Jednorazowy produkcyjny build Rust/WASM |
+| `npm run build` | Build WASM i produkcyjny build aplikacji do `web/dist/` |
+| `npm run test` | Testy Vitest oraz wszystkie testy Rust |
+| `npm run check:web` | Testy frontendowe, TypeScript, build Vite i kontrola licencji npm |
+| `npm run check` | Format Rust, testy Rust oraz pełne `check:web` |
+
+## Build produkcyjny
+
+```sh
+npm run build
+```
+
+Gotowa aplikacja trafia do `web/dist/`. Build zawiera moduł WASM, Workery oraz
+enkoder i dekoder WebP. Service Worker wersjonuje cache aplikacji i usuwa jego
+starsze wersje.
+
+Przed wydaniem uruchom:
+
+```sh
+npm run check
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+CI dodatkowo wykonuje `cargo deny check`. Lokalnie wymaga to jednorazowej
+instalacji:
+
+```sh
+cargo install cargo-deny --locked
+cargo deny check
+```
+
+## CLI
+
+CLI korzysta bezpośrednio z tego samego rdzenia Rust:
 
 ```sh
 cargo run -p optimizer-cli -- optimize photo.jpg --profile balanced --json
 cargo run -p optimizer-cli -- benchmark ./corpus --csv
 ```
 
-## Sprawdzenie projektu
+Katalog `corpus/` opisuje układ lokalnego corpusu regresyjnego. Obrazy testowe nie
+są commitowane; manifest powinien dokumentować ich pochodzenie i licencję.
 
-Przed zmianą kodu lub przed przekazaniem zmian możesz uruchomić pełną walidację:
+## Struktura repozytorium
 
-```sh
-cargo fmt --all -- --check
-cargo test --workspace
-cargo deny check
-npm ci
-npm run check
+```text
+crates/optimizer-core/   algorytmy JPEG i PNG, metryki oraz limity zasobów
+crates/optimizer-wasm/   API łączące rdzeń Rust z Workerem przeglądarkowym
+crates/optimizer-cli/    narzędzie CLI i benchmark corpusu
+web/                     interfejs Vite, kolejka, Workery i pobieranie wyników
+scripts/                 build WASM, development i kontrola licencji
 ```
 
-Jeśli firmowa polityka Windows Application Control blokuje `rustc.exe`, kompilację
-Rust/WASM trzeba uruchomić w zatwierdzonym środowisku CI albo poprosić administratora
-o dopuszczenie oficjalnego toolchaina Rust. Sam frontend nadal można budować.
+Opis zachowania produktu znajduje się w [PRODUCT.md](PRODUCT.md), a zasady
+interfejsu w [DESIGN.md](DESIGN.md).
 
-## Licencje
+## Najczęstsze problemy
 
-Kod projektu: MIT. CI dopuszcza wyłącznie MIT, Apache-2.0, BSD-2-Clause,
-BSD-3-Clause, ISC i Zlib. GPL, AGPL, biblioteki komercyjne oraz `libimagequant` są
-jawnie blokowane.
+### Brak `wasm32-unknown-unknown`
+
+Jeśli Cargo zgłasza, że target nie jest zainstalowany:
+
+```sh
+rustup target add wasm32-unknown-unknown
+npm run build:wasm
+```
+
+### Brak lub niezgodna wersja `wasm-bindgen`
+
+```sh
+cargo install wasm-bindgen-cli --version 0.2.128 --locked --force
+npm run build:wasm
+```
+
+Skrypt obsługuje `wasm-pack` jako mechanizm zapasowy, jeśli jest zainstalowany,
+ale standardowa ścieżka projektu używa `cargo` i `wasm-bindgen-cli`.
+
+### UI działa, ale silnik zachowania formatu jest niedostępny
+
+Najczęściej oznacza to uruchomienie samego `npm run dev:web` bez wcześniejszego
+builda WASM:
+
+```sh
+npm run build:wasm
+npm run dev:web
+```
+
+Po przebudowaniu odśwież stronę.
+
+### Port 5173 jest zajęty
+
+Vite wybierze kolejny dostępny port i wypisze właściwy adres w terminalu. Korzystaj
+z adresu podanego po `Local:`.
+
+### Windows blokuje kompilator Rust
+
+Jeśli Windows Application Control blokuje `rustc.exe`, kompilację trzeba wykonać
+w zatwierdzonym środowisku albo dopuścić oficjalny toolchain Rust. Sam frontend
+można uruchomić przez `npm run dev:web`, jeśli artefakty WASM zostały wcześniej
+zbudowane.
+
+## Prywatność i licencje
+
+Pliki obrazów są przekazywane bezpośrednio do lokalnego Workera. Service Worker
+pobiera wyłącznie zasoby aplikacji; nie otrzymuje obrazów użytkownika.
+
+Kod projektu jest dostępny na licencji MIT. Kontrola licencji dopuszcza MIT,
+Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC i Zlib. Zależności GPL, AGPL,
+komercyjne oraz `libimagequant` są blokowane.
