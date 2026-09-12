@@ -34,7 +34,14 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@wasm-pack
       - run: npm ci
         working-directory: web
+      - run: npm run build:wasm
       - run: npm run check
         working-directory: web
+      - run: test -f web/dist/wasm/optimizer_wasm_bg.wasm
