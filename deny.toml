@@ -1,0 +1,30 @@
+[graph]
+# Audit the features that are actually selected by the workspace. Optional
+# native codec bindings are deliberately not part of the product.
+all-features = false
+
+[advisories]
+ignore = []
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+  { name = "libimagequant" },
+  { name = "jpegli-rs" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "path": "photos/example.jpg",
+      "source": "replace-with-owned-or-permissive-source",
+      "license": "MIT",
+      "format": "jpeg",
+      "width": 4000,
+      "height": 3000,
+      "orientation": 1,
+      "alpha": false,
+      "colorProfile": "sRGB"
+    }
+  ]
+}
