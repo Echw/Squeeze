@@ -27,7 +27,9 @@ Silnik działa w przeglądarce i ocenia kandydatów za pomocą metryk percepcyjn
 - Rust/WASM pozostaje wspólnym silnikiem dla kompresji zachowującej format; WebP działa jako lokalny kodek w Workerze.
 - Szybka automatyka profilu Mocna kompresja może redukować kwalifikujący się
   nieprzezroczysty PNG 8-bit do pojedynczej palety 256 kolorów bez ditheringu.
-  Pełne porównanie pozostaje ustawieniem eksperckim.
+  Pełne porównanie pozostaje ustawieniem eksperckim. W tym samym miejscu można
+  też ręcznie wybrać wariant paletowy: 32, 64, 96, 128, 192 albo 256 kolorów
+  oraz dithering Floyd–Steinberg, po czym przeliczyć i porównać wynik.
 - PNG z alpha, 16-bit, osadzonym zarządzaniem kolorem lub EXIF korzysta z
   bezpiecznej ścieżki lossless, gdy zachowuje format.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
@@ -48,3 +50,6 @@ Repozytorium zawiera działający silnik JPEG/PNG, lokalny Worker, porównanie p
 - Prywatność jest właściwością architektury, nie obietnicą marketingową.
 - Testy przeglądarkowe Chromium/Firefox są TODO; nie deklarujemy ich jako
   obecnego pokrycia dopóki nie zostaną wdrożone.
+- CI działa obecnie na Ubuntu. TODO: dodać runner Windows do weryfikacji
+  natywnego CLI oraz skryptów developerskich przed deklarowaniem ciągłego
+  pokrycia tej platformy.

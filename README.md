@@ -23,8 +23,11 @@ Nowa instalacja używa profilu `Mocna kompresja`, zachowuje format i rozpoczyna
 pracę automatycznie. Dla kwalifikującego się nieprzezroczystego PNG 8-bit szybka
 automatyka tworzy jeden wariant: paleta 256 kolorów bez ditheringu. Zawsze
 zachowuje format i wymiary, a plik większy od wejścia zostaje odrzucony. Pełne
-porównanie wariantów, dithering, bezstratna ścieżka i ręczna paleta pozostają w
-zwiniętych ustawieniach zaawansowanych.
+porównanie wariantów, dithering i bezstratna ścieżka pozostają w zwiniętych
+ustawieniach zaawansowanych. W ręcznym wariancie paletowym można wybrać liczbę
+kolorów (32, 64, 96, 128, 192 albo 256) oraz włączyć dithering
+Floyd–Steinberg, a następnie ponownie przeliczyć plik i porównać wynik z
+oryginałem.
 
 ## Technologie
 
@@ -49,7 +52,7 @@ Do pracy nad aplikacją webową wystarczą Node.js, Rust oraz target
 `wasm32-unknown-unknown`. Do uruchamiania natywnego CLI na Windows potrzebne są
 dodatkowo **Visual Studio Build Tools** z workloadem „Desktop development with
 C++” — zależność `libdeflate` kompiluje kod C dla lokalnego optymalizatora PNG.
-W PowerShell katalog na fixture podawaj jako `$env:TEMP\\squeeze-fixtures`.
+W PowerShell katalog na fixture podawaj jako `$env:TEMP\squeeze-fixtures`.
 
 Wersje możesz sprawdzić poleceniami:
 
@@ -135,7 +138,9 @@ npm run build
 cargo install cargo-deny --locked
 ```
 
-GitHub Actions wykonuje te same kontrole na Node.js 20 i Rust 1.90.
+GitHub Actions uruchamia na Ubuntu formatowanie, Clippy, testy Rust, kontrolę
+zależności, build WASM i kontrolę aplikacji webowej na Node.js 20 i Rust 1.90.
+Weryfikacja natywnego CLI na runnerze Windows pozostaje TODO.
 
 ### Aktualizacja zależności
 
@@ -160,9 +165,11 @@ aplikacji i usuwa starsze wersje cache.
 CLI korzysta z tego samego rdzenia Rust co aplikacja:
 
 ```sh
-cargo run -p optimizer-cli -- optimize photo.jpg --profile balanced --json
+cargo run -p optimizer-cli -- optimize photo.jpg --profile maximum-compression --method auto --search-effort auto --json
 cargo run -p optimizer-cli -- benchmark ./corpus --profile maximum-compression --method auto --search-effort auto --warmup 1 --runs 5 --json
 ```
+
+Pierwsze polecenie odtwarza domyślną szybką konfigurację aplikacji webowej.
 
 Format lokalnego corpusu oraz deterministyczny generator legalnych fixture’ów
 opisuje [corpus/README.md](corpus/README.md). Obrazy testowe nie są częścią

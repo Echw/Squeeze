@@ -24,8 +24,8 @@ cargo run -p optimizer-cli -- fixtures <temporary-directory>/squeeze-fixtures
 cargo run -p optimizer-cli -- benchmark <temporary-directory>/squeeze-fixtures --profile maximum-compression --method auto --search-effort auto --warmup 1 --runs 5 --json
 ```
 
-W PowerShell zastąp `<temporary-directory>` przez `$env:TEMP`; w powłoce Unix
-przez katalog zwrócony przez `mktemp -d`.
+W PowerShell użyj na przykład `$env:TEMP\squeeze-fixtures`; w powłoce Unix
+użyj katalogu zwróconego przez `mktemp -d`.
 
 Raport zawiera medianę, p95 oraz średni czas faz rdzenia. Diagnostyczny Worker
 WASM przyjmuje identyczne opcje i może zwrócić czasy faz na żądanie. Testy
