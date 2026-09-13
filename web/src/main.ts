@@ -20,6 +20,7 @@ class AppController {
   readonly #expertMode = get<HTMLInputElement>("expert-mode");
   readonly #results = get<HTMLElement>("results");
   readonly #queueElement = get<HTMLElement>("queue");
+  readonly #clearButton = get<HTMLButtonElement>("clear-button");
   readonly #runButton = get<HTMLButtonElement>("run-button");
   readonly #summary = get<HTMLElement>("summary");
   #jobs: readonly CompressionJob[] = [];
@@ -43,7 +44,7 @@ class AppController {
     this.#dropzone.addEventListener("drop", (event) => void this.addFiles(event.dataTransfer?.files));
     get<HTMLFormElement>("settings").addEventListener("change", () => this.onSettingsChange());
     this.#runButton.addEventListener("click", () => this.#paused ? this.#queue.start() : this.#queue.pause());
-    get("clear-button").addEventListener("click", () => this.#queue.clearCompleted());
+    this.#clearButton.addEventListener("click", () => this.#queue.clearCompleted());
     get("download-all").addEventListener("click", () => void this.downloadAll());
     this.#unsubscribe = this.#queue.subscribe((jobs, paused, engine, capabilities) => this.update(jobs, paused, engine, capabilities));
     window.addEventListener("pagehide", () => this.dispose(), { once: true });
@@ -102,6 +103,7 @@ class AppController {
     const complete = jobs.filter((job) => job.output && job.report).length;
     const active = jobs.filter((job) => job.status === "processing").length;
     const waiting = jobs.filter((job) => job.status === "queued").length;
+    this.#clearButton.hidden = !jobs.some((job) => ["complete", "cancelled", "error"].includes(job.status));
     get("queue-progress").textContent = active ? `${complete} gotowe · trwa kompresja` : waiting ? `${complete} gotowe · ${waiting} oczekuje` : `${complete} gotowe`;
     this.#runButton.hidden = waiting === 0 && active === 0;
     this.#runButton.textContent = paused ? `Kompresuj${waiting ? ` (${waiting})` : ""}` : "Wstrzymaj kolejkę";

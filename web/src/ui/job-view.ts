@@ -93,7 +93,7 @@ function appendFact(parent: HTMLElement, label: string, value: string): void {
 
 function visibleAction(action: JobAction, job: CompressionJob): boolean {
   if (action === "remove") return job.status !== "processing";
-  if (action === "cancel") return job.status === "queued" || job.status === "processing";
+  if (action === "cancel") return job.status === "processing";
   if (action === "retry") return (job.status === "error" && job.recoverable !== false) || job.status === "cancelled" || job.status === "complete";
   return Boolean(job.output && job.report);
 }
