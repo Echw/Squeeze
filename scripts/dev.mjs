@@ -8,8 +8,11 @@ const run = (file, args) => spawn(process.execPath, [join(root, "scripts", file)
 const ensure = spawnSync(process.execPath, [join(root, "scripts", "ensure-wasm.mjs")], { cwd: root, stdio: "inherit" });
 if (ensure.status !== 0) process.exit(ensure.status ?? 1);
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const vite = spawn(npm, ["--prefix", "web", "run", "dev"], { cwd: root, stdio: "inherit" });
+const npmArgs = ["--prefix", "web", "run", "dev"];
+const npmCli = process.env.npm_execpath ?? join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js");
+const vite = process.platform === "win32"
+  ? spawn(process.execPath, [npmCli, ...npmArgs], { cwd: root, stdio: "inherit" })
+  : spawn("npm", npmArgs, { cwd: root, stdio: "inherit" });
 let timer;
 let rebuilding = false;
 let rebuildAgain = false;
