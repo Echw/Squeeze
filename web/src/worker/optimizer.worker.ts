@@ -119,7 +119,7 @@ async function optimizeWebp(
       candidatesTested: qualities.length,
       processingTimeMs: performance.now() - started,
       alreadyOptimized: false,
-      profileSetVersion: 2,
+      profileSetVersion: 3,
       warnings: [
         ...(winner.error > maxMeanError * 0.8 ? ["Wynik jest blisko progu jakości wybranego profilu."] : []),
         ...(isPng(input) && hasPngColorProfile(input) ? ["Osadzony profil koloru został przeliczony przez przeglądarkę do przestrzeni wyniku WebP."] : []),
