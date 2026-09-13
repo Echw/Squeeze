@@ -44,6 +44,14 @@ describe("optionsFor", () => {
       searchEffort: "auto",
     });
   });
+
+  it("sends one explicit palette variant when the user chooses it", () => {
+    expect(optionsFor("maximumCompression", "auto", "palette", "preserve", 128, "floydSteinberg")).toMatchObject({
+      method: "palette",
+      paletteColors: 128,
+      paletteDithering: "floydSteinberg",
+    });
+  });
 });
 
 describe("CompressionQueue", () => {
@@ -182,7 +190,7 @@ function report(): OptimizationReport {
   return {
     format: "png", outputFormat: "png", width: 1, height: 1, originalSize: 3, optimizedSize: 2, savedBytes: 1, savedPercent: 33.3,
     metrics: { ssimulacra2: 99, butteraugli: 0 },
-    strategy: { encoder: "test", quality: null, chromaSubsampling: null, progressive: null, paletteColors: null, dithering: null, lossless: true },
+    strategy: { encoder: "test", quality: null, chromaSubsampling: null, progressive: null, paletteColors: null, dithering: null, qualityGuard: null, lossless: true },
     candidatesTested: 1, processingTimeMs: 1, alreadyOptimized: false, profileSetVersion: 2, warnings: [],
     analysis: { kind: "graphic", entropy: 0, estimatedColors: 1, edgeDensity: 0, noise: 0, flatAreaRatio: 1, hasAlpha: false },
   };

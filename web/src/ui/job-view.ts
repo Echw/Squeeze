@@ -53,7 +53,7 @@ export class JobView {
     this.#change.classList.toggle("is-growth", (percent ?? 0) < 0);
     this.#statusIcon.className = statusIconClass(job);
     this.#statusCopy.textContent = statusMessage(job);
-    const hasProgress = job.status === "processing" && Boolean(job.total);
+    const hasProgress = job.status === "processing" && (job.total ?? 0) > 1;
     this.#progress.hidden = !hasProgress;
     this.#progress.max = job.total ?? 1;
     this.#progress.value = job.candidate ?? 0;
@@ -73,11 +73,12 @@ export class JobView {
     this.#detailsBody.replaceChildren();
     if (warnings.length) appendFact(this.#detailsBody, "Uwagi", warnings.join(" "));
     if (expertMode && job.report) {
-      appendFact(this.#detailsBody, "Strategia", strategyName(job));
+      appendFact(this.#detailsBody, "Użyty wariant", strategyName(job));
       appendFact(this.#detailsBody, "Kandydaci", String(job.report.candidatesTested));
       appendFact(this.#detailsBody, "Czas", `${Math.round(job.report.processingTimeMs)} ms`);
       if (job.report.metrics.ssimulacra2 !== null) appendFact(this.#detailsBody, "SSIMULACRA2", job.report.metrics.ssimulacra2.toFixed(2));
       if (job.report.metrics.butteraugli !== null) appendFact(this.#detailsBody, "Butteraugli", job.report.metrics.butteraugli.toFixed(2));
+      if (job.report.strategy.qualityGuard) appendFact(this.#detailsBody, "Kontrola jakości", qualityGuardName(job.report.strategy.qualityGuard));
     }
     this.#details.open = wasOpen;
   }
@@ -100,7 +101,7 @@ function visibleAction(action: JobAction, job: CompressionJob): boolean {
 
 function statusMessage(job: CompressionJob): string {
   if (job.status === "queued") return job.isReprocessing ? "Czeka na ponowne przeliczenie" : "Czeka w kolejce";
-  if (job.status === "processing") return `${job.isReprocessing ? "Przeliczam" : stageName(job.stage)}${job.candidate && job.total ? ` · wariant ${job.candidate} z ${job.total}` : ""}`;
+  if (job.status === "processing") return processingMessage(job);
   if (job.status === "error") return job.output ? "Nowa próba nie powiodła się — poprzedni wynik jest dostępny" : "Nie udało się skompresować";
   if (job.status === "cancelled") return job.output ? "Przerwano — poprzedni wynik jest dostępny" : "Anulowano";
   if ((job.report?.savedPercent ?? 0) < 0) return "Gotowe · WebP jest większy od oryginału";
@@ -112,13 +113,30 @@ function statusIconClass(job: CompressionJob): string {
   return job.status === "processing" ? "spinner" : job.status === "complete" ? "status-dot status-dot--success" : job.status === "error" ? "status-dot status-dot--error" : "status-dot";
 }
 
+function processingMessage(job: CompressionJob): string {
+  if (job.isReprocessing) return "Przeliczam wybrany wariant";
+  const variant = job.variant;
+  const prefix = job.stage === "searching" ? "Tworzę" : job.stage === "measuring" ? "Oceniam jakość" : stageName(job.stage);
+  const position = (job.total ?? 0) > 1 && job.candidate ? ` · wariant ${job.candidate} z ${job.total}` : "";
+  return variant ? `${prefix}: ${variant}${position}` : `${prefix}${position}`;
+}
+
 function stageName(stage?: ProgressStage): string {
   return ({ decoding: "Odczytuję obraz", analyzing: "Analizuję zawartość", searching: "Szukam mniejszego wariantu", measuring: "Sprawdzam jakość", finalizing: "Kończę" } as Record<ProgressStage, string>)[stage ?? "decoding"];
 }
 
 function strategyName(job: CompressionJob): string {
   const strategy = job.report!.strategy;
-  return [strategy.encoder, strategy.quality === null ? null : `Q${strategy.quality}`, strategy.paletteColors === null ? null : `${strategy.paletteColors} kolorów`, strategy.dithering].filter(Boolean).join(" · ");
+  if (strategy.lossless) return "Bezstratna optymalizacja";
+  if (strategy.paletteColors !== null) {
+    return `Paleta ${strategy.paletteColors} kolorów${strategy.dithering === "floyd-steinberg" ? " z ditheringiem" : " bez ditheringu"}`;
+  }
+  if (strategy.encoder === "libwebp") return `WebP, jakość ${strategy.quality ?? "automatyczna"}`;
+  return `JPEG, jakość ${strategy.quality ?? "automatyczna"}${strategy.chromaSubsampling ? `, kolor ${strategy.chromaSubsampling}` : ""}`;
+}
+
+function qualityGuardName(value: string): string {
+  return value === "ssimulacra2" ? "SSIMULACRA2" : "SSIMULACRA2 i Butteraugli";
 }
 
 export function formatBytes(value: number): string {

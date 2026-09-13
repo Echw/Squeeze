@@ -37,14 +37,19 @@
           </div>
 
           <form class="settings" id="settings" aria-label="Ustawienia kompresji">
-            <label><span>Jakość</span><select id="profile"><option value="maximumQuality">Bardzo wysoka</option><option value="balanced" selected>Zbalansowana</option><option value="maximumCompression">Mocna kompresja</option></select></label>
+            <label><span>Jakość</span><select id="profile"><option value="maximumQuality">Bardzo wysoka</option><option value="balanced">Zbalansowana</option><option value="maximumCompression" selected>Mocna kompresja</option></select></label>
             <label><span>Format wyniku</span><select id="output-format"><option value="preserve" selected>Zachowaj format</option><option value="webp">WebP</option></select></label>
             <label class="switch"><span><strong>Kompresuj od razu</strong><small>Po dodaniu plików</small></span><input id="auto-start" type="checkbox" checked /><i aria-hidden="true"></i></label>
             <details class="advanced">
               <summary>Ustawienia zaawansowane</summary>
               <div class="advanced__content">
-                <label><span>Strategia PNG</span><select id="method"><option value="auto" selected>Smart</option><option value="search">Pełne porównanie</option><option value="lossless">Bezstratna</option><option value="palette">Redukcja kolorów</option></select></label>
-                <label><span>Dokładność szukania</span><select id="effort"><option value="auto" selected>Standardowa</option><option value="detailed">Dokładna</option></select></label>
+                <label><span>Jak skompresować PNG</span><select id="method"><option value="auto" selected>Szybko i automatycznie</option><option value="search">Sprawdź kilka bezpiecznych wariantów</option><option value="lossless">Tylko bezstratnie</option><option value="palette">Wybiorę wariant samodzielnie</option></select></label>
+                <div class="palette-controls" id="palette-controls" hidden>
+                  <label><span>Kolory w wyniku</span><select id="palette-colors"><option value="256" selected>256 — najbliżej jakości oryginału</option><option value="192">192</option><option value="128">128</option><option value="96">96</option><option value="64">64</option><option value="32">32 — najmniejszy plik</option></select></label>
+                  <label><span>Wygładzanie przejść</span><select id="palette-dithering"><option value="none" selected>Bez wygładzania</option><option value="floydSteinberg">Dithering (Floyd–Steinberg)</option></select></label>
+                  <p>Przelicz obraz, a potem użyj „Porównaj”, aby ocenić wybrany wariant.</p>
+                </div>
+                <label><span>Zakres porównania</span><select id="effort"><option value="auto" selected>Standardowy</option><option value="detailed">Dokładniejszy</option></select></label>
                 <label class="checkbox"><input id="expert-mode" type="checkbox" /> Pokaż dane techniczne</label>
               </div>
             </details>

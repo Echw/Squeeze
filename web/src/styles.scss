@@ -61,6 +61,8 @@ main { padding-bottom: 60px; flex: 1 0 auto; }
 .advanced { grid-column: 1 / -1; padding-top: 3px; border-top: 1px solid $line; }
 .advanced summary { width: max-content; padding-top: 12px; color: $muted; font-size: 12px; font-weight: 700; cursor: pointer; }
 .advanced__content { padding-top: 14px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: end; }
+.palette-controls { grid-column: 1 / -1; padding: 13px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(180px, .9fr); gap: 13px 16px; align-items: end; border: 1px solid $line; border-radius: 10px; background: $surface; }
+.palette-controls p { margin: 0 0 3px; color: $muted; font-size: 12px; line-height: 1.45; }
 .checkbox { min-height: 42px; display: flex !important; align-items: center; color: $ink !important; cursor: pointer; }
 .checkbox input { width: 17px; height: 17px; accent-color: $green; }
 
@@ -163,6 +165,7 @@ main { padding-bottom: 60px; flex: 1 0 auto; }
   .settings { grid-template-columns: 1fr; padding: 14px; gap: 12px; }
   .advanced { grid-column: auto; }
   .advanced__content { grid-template-columns: 1fr; }
+  .palette-controls { grid-template-columns: 1fr; }
   .results { padding: 20px 3px 3px; }
   .results__header { align-items: flex-start; }
   .results__actions { align-items: flex-end; flex-direction: column-reverse; }

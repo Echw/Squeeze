@@ -22,10 +22,14 @@ Silnik działa w przeglądarce i ocenia kandydatów za pomocą metryk percepcyjn
 
 - Wejście: JPEG i PNG, maksymalnie 24 MP i 100 MB na plik.
 - Wyjście domyślne zachowuje format; opcjonalna konwersja prowadzi do WebP.
-- Autostart jest domyślnie włączony i zapamiętywany na urządzeniu.
+- Dla nowej instalacji domyślne są: Mocna kompresja, zachowanie formatu i
+  autostart. Migracja ustawień zachowuje każdą poprawną wartość wybraną wcześniej.
 - Rust/WASM pozostaje wspólnym silnikiem dla kompresji zachowującej format; WebP działa jako lokalny kodek w Workerze.
-- Profil Mocna kompresja może redukować nieprzezroczysty PNG do palety 256 kolorów. Używa osobnego progu jakości, skalibrowanego na dostarczonej parze oryginał/wynik TinyPNG; pozostałe profile zachowują ostrzejsze progi.
-- PNG z alpha, 16-bit lub osadzonym zarządzaniem kolorem korzysta z bezpiecznej ścieżki, gdy zachowuje format.
+- Szybka automatyka profilu Mocna kompresja może redukować kwalifikujący się
+  nieprzezroczysty PNG 8-bit do pojedynczej palety 256 kolorów bez ditheringu.
+  Pełne porównanie pozostaje ustawieniem eksperckim.
+- PNG z alpha, 16-bit, osadzonym zarządzaniem kolorem lub EXIF korzysta z
+  bezpiecznej ścieżki lossless, gdy zachowuje format.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
 
 ## Brand Commitments
@@ -42,3 +46,5 @@ Repozytorium zawiera działający silnik JPEG/PNG, lokalny Worker, porównanie p
 - Domyślna automatyka ma być dobra; kontrola pozostaje dostępna.
 - Wynik i ograniczenia muszą być opisane uczciwie.
 - Prywatność jest właściwością architektury, nie obietnicą marketingową.
+- Testy przeglądarkowe Chromium/Firefox są TODO; nie deklarujemy ich jako
+  obecnego pokrycia dopóki nie zostaną wdrożone.

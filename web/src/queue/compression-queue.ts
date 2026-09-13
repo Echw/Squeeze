@@ -1,6 +1,7 @@
 import type {
   CompressionJob,
   CompressionMethod,
+  PaletteDithering,
   CompressionProfile,
   OptimizationOptions,
   OutputFormat,
@@ -18,6 +19,8 @@ export interface QueueSettings {
   profile: CompressionProfile;
   searchEffort: SearchEffort;
   method: CompressionMethod;
+  paletteColors?: number;
+  paletteDithering?: PaletteDithering;
   outputFormat?: OutputFormat;
 }
 
@@ -83,6 +86,8 @@ export class CompressionQueue {
       job.profile = settings.profile;
       job.searchEffort = settings.searchEffort;
       job.method = isPng(job.file) ? settings.method : "auto";
+      job.paletteColors = settings.paletteColors;
+      job.paletteDithering = settings.paletteDithering;
       job.outputFormat = settings.outputFormat ?? "preserve";
       updated += 1;
     }
@@ -113,6 +118,8 @@ export class CompressionQueue {
     job.profile = settings?.profile ?? job.profile;
     job.searchEffort = settings?.searchEffort ?? job.searchEffort;
     job.method = isPng(job.file) ? settings?.method ?? job.method : "auto";
+    job.paletteColors = settings?.paletteColors ?? job.paletteColors;
+    job.paletteDithering = settings?.paletteDithering ?? job.paletteDithering;
     job.outputFormat = settings?.outputFormat ?? job.outputFormat;
     job.status = "queued";
     job.error = undefined;
@@ -121,6 +128,7 @@ export class CompressionQueue {
     job.stage = undefined;
     job.candidate = undefined;
     job.total = undefined;
+    job.variant = undefined;
     job.isReprocessing = Boolean(job.output);
     job.attempt += 1;
     if (this.#autoStart && !this.#manuallyPaused) this.#paused = false;
@@ -216,6 +224,8 @@ export class CompressionQueue {
       profile: settings.profile,
       searchEffort: settings.searchEffort,
       method: isPng(file) ? settings.method : "auto",
+      paletteColors: settings.paletteColors,
+      paletteDithering: settings.paletteDithering,
       outputFormat: settings.outputFormat ?? "preserve",
       attempt: 0,
       sourceJobId,
@@ -269,7 +279,7 @@ export class CompressionQueue {
         jobId: job.id,
         attempt,
         buffer,
-        options: optionsFor(job.profile, job.searchEffort, job.method, job.outputFormat),
+        options: optionsFor(job.profile, job.searchEffort, job.method, job.outputFormat, job.paletteColors, job.paletteDithering),
       };
       this.#worker.postMessage(request, [buffer]);
     } catch (error) {
@@ -299,6 +309,7 @@ export class CompressionQueue {
       job.stage = message.stage;
       job.candidate = message.candidate;
       job.total = message.total;
+      job.variant = message.variant;
       this.#emit();
       return;
     }
@@ -354,8 +365,10 @@ export function optionsFor(
   searchEffort: SearchEffort = "auto",
   method: CompressionMethod = "auto",
   outputFormat: OutputFormat = "preserve",
+  paletteColors?: number,
+  paletteDithering: PaletteDithering = "none",
 ): OptimizationOptions {
-  return {
+  const options: OptimizationOptions = {
     profile,
     searchEffort,
     method,
@@ -367,6 +380,11 @@ export function optionsFor(
       maxWorkingBytes: 768 * 1024 * 1024,
     },
   };
+  if (method === "palette") {
+    options.paletteColors = paletteColors;
+    options.paletteDithering = paletteDithering;
+  }
+  return options;
 }
 
 function isSupported(file: File): boolean {

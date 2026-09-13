@@ -2,7 +2,7 @@ import "./styles.scss";
 import { CompressionQueue, type EngineState, type QueueSettings } from "./queue/compression-queue";
 import { downloadJob, downloadReport, downloadZip } from "./services/downloads";
 import { loadSettings, saveSettings, type AppSettings } from "./settings";
-import type { CompressionJob, CompressionMethod, CompressionProfile, OutputFormat, SearchEffort, WorkerCapabilities } from "./types";
+import type { CompressionJob, CompressionMethod, CompressionProfile, OutputFormat, PaletteDithering, SearchEffort, WorkerCapabilities } from "./types";
 import { openComparison } from "./ui/compare-modal";
 import { formatBytes, JobView, type JobAction } from "./ui/job-view";
 
@@ -16,6 +16,9 @@ class AppController {
   readonly #outputFormat = get<HTMLSelectElement>("output-format");
   readonly #autoStart = get<HTMLInputElement>("auto-start");
   readonly #method = get<HTMLSelectElement>("method");
+  readonly #paletteControls = get<HTMLElement>("palette-controls");
+  readonly #paletteColors = get<HTMLSelectElement>("palette-colors");
+  readonly #paletteDithering = get<HTMLSelectElement>("palette-dithering");
   readonly #effort = get<HTMLSelectElement>("effort");
   readonly #expertMode = get<HTMLInputElement>("expert-mode");
   readonly #results = get<HTMLElement>("results");
@@ -71,8 +74,11 @@ class AppController {
     this.#settings.outputFormat = this.#outputFormat.value as OutputFormat;
     this.#settings.autoStart = this.#autoStart.checked;
     this.#settings.method = this.#method.value as CompressionMethod;
+    this.#settings.paletteColors = Number(this.#paletteColors.value);
+    this.#settings.paletteDithering = this.#paletteDithering.value as PaletteDithering;
     this.#settings.searchEffort = this.#effort.value as SearchEffort;
     this.#settings.expertMode = this.#expertMode.checked;
+    this.#paletteControls.hidden = this.#settings.method !== "palette";
     saveSettings(this.#settings);
     this.#queue.setAutoStart(this.#settings.autoStart);
     const updated = this.#queue.reconfigureQueued(this.queueSettings());
@@ -81,7 +87,7 @@ class AppController {
   }
 
   private queueSettings(): QueueSettings {
-    return { profile: this.#settings.profile, outputFormat: this.#settings.outputFormat, method: this.#settings.method, searchEffort: this.#settings.searchEffort };
+    return { profile: this.#settings.profile, outputFormat: this.#settings.outputFormat, method: this.#settings.method, paletteColors: this.#settings.paletteColors, paletteDithering: this.#settings.paletteDithering, searchEffort: this.#settings.searchEffort };
   }
 
   private applySettingsToForm(): void {
@@ -89,6 +95,9 @@ class AppController {
     this.#outputFormat.value = this.#settings.outputFormat;
     this.#autoStart.checked = this.#settings.autoStart;
     this.#method.value = this.#settings.method;
+    this.#paletteColors.value = String(this.#settings.paletteColors);
+    this.#paletteDithering.value = this.#settings.paletteDithering;
+    this.#paletteControls.hidden = this.#settings.method !== "palette";
     this.#effort.value = this.#settings.searchEffort;
     this.#expertMode.checked = this.#settings.expertMode;
   }
