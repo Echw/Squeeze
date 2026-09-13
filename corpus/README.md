@@ -13,3 +13,21 @@ oczekiwanym formatem, wymiarami, orientacją i informacją o alpha/ICC. Wynik po
 `optimizer benchmark corpus --json` można zachować jako artefakt CI i porównać z
 zaakceptowanym baseline'em poza repozytorium.
 
+## Fixture generowany w repozytorium
+
+Do testów i benchmarków bez obciążeń licencyjnych użyj deterministycznego
+generatora. Zapisuje on pliki wyłącznie do wskazanego katalogu (najlepiej
+tymczasowego), więc żaden obraz binarny nie trafia do Git:
+
+```sh
+cargo run -p optimizer-cli -- fixtures <temporary-directory>/squeeze-fixtures
+cargo run -p optimizer-cli -- benchmark <temporary-directory>/squeeze-fixtures --profile maximum-compression --method auto --search-effort auto --warmup 1 --runs 5 --json
+```
+
+W PowerShell zastąp `<temporary-directory>` przez `$env:TEMP`; w powłoce Unix
+przez katalog zwrócony przez `mktemp -d`.
+
+Raport zawiera medianę, p95 oraz średni czas faz rdzenia. Diagnostyczny Worker
+WASM przyjmuje identyczne opcje i może zwrócić czasy faz na żądanie. Testy
+przeglądarkowe w Chromium i Firefox są świadomie odłożone jako TODO, bez
+dodawania obecnie Playwrighta.

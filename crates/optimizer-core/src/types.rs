@@ -43,6 +43,14 @@ pub enum CompressionMethod {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub enum PaletteDithering {
+    #[default]
+    None,
+    FloydSteinberg,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum MetadataPolicy {
     #[default]
     StripPrivate,
@@ -73,6 +81,10 @@ pub struct OptimizeOptions {
     pub profile: CompressionProfile,
     pub search_effort: SearchEffort,
     pub method: CompressionMethod,
+    /// Used only with the explicit Palette method. `None` keeps the search
+    /// schedule; a value makes the requested variant deterministic.
+    pub palette_colors: Option<u16>,
+    pub palette_dithering: PaletteDithering,
     pub output_format: OutputFormat,
     pub metadata: MetadataPolicy,
     pub limits: ResourceLimits,
@@ -84,6 +96,8 @@ impl Default for OptimizeOptions {
             profile: CompressionProfile::Balanced,
             search_effort: SearchEffort::Auto,
             method: CompressionMethod::Auto,
+            palette_colors: None,
+            palette_dithering: PaletteDithering::None,
             output_format: OutputFormat::Preserve,
             metadata: MetadataPolicy::StripPrivate,
             limits: ResourceLimits::default(),
@@ -108,16 +122,41 @@ pub enum ProgressStage {
     Finalizing,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProgressEvent {
     pub stage: ProgressStage,
     pub candidate: Option<u16>,
     pub total: Option<u16>,
+    /// Human-readable description of the candidate currently being encoded or
+    /// measured. This is UI copy, not an engine control.
+    pub variant: Option<String>,
 }
 
 pub trait ProgressSink {
     fn report(&self, event: ProgressEvent);
+}
+
+/// Optional diagnostic events. Production callers use `NoObserver`, so the
+/// optimizer does not retain timing state or allocate telemetry data.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[serde(rename_all = "camelCase")]
+pub enum OptimizationOperation {
+    Decode,
+    Analysis,
+    PaletteBuild,
+    Dithering,
+    PngEncode,
+    CandidateDecode,
+    Ssimulacra2,
+    Butteraugli,
+    FinalRecompress,
+    LosslessVerification,
+}
+
+pub trait OptimizationObserver {
+    fn begin(&self, operation: OptimizationOperation);
+    fn end(&self, operation: OptimizationOperation);
 }
 
 pub trait CancellationToken {
@@ -129,6 +168,14 @@ pub struct NoProgress;
 
 impl ProgressSink for NoProgress {
     fn report(&self, _event: ProgressEvent) {}
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoObserver;
+
+impl OptimizationObserver for NoObserver {
+    fn begin(&self, _operation: OptimizationOperation) {}
+    fn end(&self, _operation: OptimizationOperation) {}
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -177,6 +224,9 @@ pub struct SelectedStrategy {
     pub progressive: Option<bool>,
     pub palette_colors: Option<u16>,
     pub dithering: Option<String>,
+    /// The metric evaluated on the selected lossy candidate. `None` means a
+    /// lossless or pass-through result.
+    pub quality_guard: Option<String>,
     pub lossless: bool,
 }
 

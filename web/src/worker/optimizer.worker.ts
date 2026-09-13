@@ -13,6 +13,7 @@ interface OptimizerWasm {
   default(input?: { module_or_path: URL }): Promise<unknown>;
   worker_api_version(): number;
   optimize_image(input: Uint8Array, optionsJson: string, progress: (eventJson: string) => void): WasmResult;
+  optimize_image_with_diagnostics?(input: Uint8Array, optionsJson: string, progress: (eventJson: string) => void, diagnostics: (eventJson: string) => void): WasmResult;
 }
 
 let modulePromise: Promise<OptimizerWasm> | undefined;
@@ -43,14 +44,30 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       complete(request.jobId, request.attempt, result.report, result.buffer);
     } else {
       const wasm = await loadWasm();
-      const result = wasm.optimize_image(new Uint8Array(request.buffer), JSON.stringify(request.options), (eventJson) => {
-        const progress = JSON.parse(eventJson) as { stage: ProgressStage; candidate?: number; total?: number };
+      const started = performance.now();
+      const active = new Map<string, number>();
+      const timings: Record<string, number> = {};
+      const progress = (eventJson: string) => {
+        const progress = JSON.parse(eventJson) as { stage: ProgressStage; candidate?: number; total?: number; variant?: string };
         if (activeJobId !== request.jobId || activeAttempt !== request.attempt) return;
         post({ version: WORKER_API_VERSION, type: "progress", jobId: request.jobId, attempt: request.attempt, ...progress });
-      });
+      };
+      const diagnostics = (eventJson: string) => {
+        const event = JSON.parse(eventJson) as { type: "begin" | "end"; operation: string };
+        const now = performance.now();
+        if (event.type === "begin") active.set(event.operation, now);
+        else {
+          const began = active.get(event.operation);
+          if (began !== undefined) timings[event.operation] = (timings[event.operation] ?? 0) + now - began;
+        }
+      };
+      const result = request.diagnostics && wasm.optimize_image_with_diagnostics
+        ? wasm.optimize_image_with_diagnostics(new Uint8Array(request.buffer), JSON.stringify(request.options), progress, diagnostics)
+        : wasm.optimize_image(new Uint8Array(request.buffer), JSON.stringify(request.options), progress);
       const output = result.take_bytes();
       const buffer = output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer;
-      complete(request.jobId, request.attempt, JSON.parse(result.report_json) as OptimizationReport, buffer);
+      timings.total = performance.now() - started;
+      complete(request.jobId, request.attempt, JSON.parse(result.report_json) as OptimizationReport, buffer, request.diagnostics ? timings : undefined);
     }
   } catch (error) {
     const parsed = parseError(error);
@@ -115,7 +132,7 @@ async function optimizeWebp(
       savedBytes: delta,
       savedPercent: originalSize ? (delta / originalSize) * 100 : 0,
       metrics: { ssimulacra2: null, butteraugli: null },
-      strategy: { encoder: "libwebp", quality: winner.quality, chromaSubsampling: null, progressive: null, paletteColors: null, dithering: null, lossless: false },
+      strategy: { encoder: "libwebp", quality: winner.quality, chromaSubsampling: null, progressive: null, paletteColors: null, dithering: null, qualityGuard: null, lossless: false },
       candidatesTested: qualities.length,
       processingTimeMs: performance.now() - started,
       alreadyOptimized: false,
@@ -192,8 +209,8 @@ async function loadWasm(): Promise<OptimizerWasm> {
   return modulePromise;
 }
 
-function complete(jobId: string, attempt: number, result: OptimizationReport, buffer: ArrayBuffer): void {
-  post({ version: WORKER_API_VERSION, type: "complete", jobId, attempt, result, buffer }, [buffer]);
+function complete(jobId: string, attempt: number, result: OptimizationReport, buffer: ArrayBuffer, timings?: Record<string, number>): void {
+  post({ version: WORKER_API_VERSION, type: "complete", jobId, attempt, result, buffer, timings }, [buffer]);
 }
 function isPng(input: ArrayBuffer): boolean {
   const bytes = new Uint8Array(input, 0, Math.min(8, input.byteLength));

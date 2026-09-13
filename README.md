@@ -19,10 +19,12 @@ są wysyłane na serwer.
 Limity wejścia to 100 MB i 24 MP na plik. Obsługiwane są JPEG i PNG. AVIF oraz
 przetwarzanie na serwerze pozostają poza obecnym zakresem.
 
-Profil `Mocna kompresja` pozwala na wyraźniejszą redukcję kolorów PNG. Zachowuje
-format i wymiary, ale wynik jest stratny, dlatego przed pobraniem warto użyć
-porównania. Profile `Zbalansowana` i `Bardzo wysoka` pozostają bardziej
-zachowawcze.
+Nowa instalacja używa profilu `Mocna kompresja`, zachowuje format i rozpoczyna
+pracę automatycznie. Dla kwalifikującego się nieprzezroczystego PNG 8-bit szybka
+automatyka tworzy jeden wariant: paleta 256 kolorów bez ditheringu. Zawsze
+zachowuje format i wymiary, a plik większy od wejścia zostaje odrzucony. Pełne
+porównanie wariantów, dithering, bezstratna ścieżka i ręczna paleta pozostają w
+zwiniętych ustawieniach zaawansowanych.
 
 ## Technologie
 
@@ -39,6 +41,15 @@ zachowawcze.
 - Rust `1.90+` zainstalowany przez [rustup](https://rustup.rs/);
 - target Rust `wasm32-unknown-unknown`;
 - `wasm-bindgen-cli` w wersji `0.2.128`.
+
+### Windows
+
+`npm run dev`, Vite i skrypty budujące WASM obsługują Windows bez powłoki Unix.
+Do pracy nad aplikacją webową wystarczą Node.js, Rust oraz target
+`wasm32-unknown-unknown`. Do uruchamiania natywnego CLI na Windows potrzebne są
+dodatkowo **Visual Studio Build Tools** z workloadem „Desktop development with
+C++” — zależność `libdeflate` kompiluje kod C dla lokalnego optymalizatora PNG.
+W PowerShell katalog na fixture podawaj jako `$env:TEMP\\squeeze-fixtures`.
 
 Wersje możesz sprawdzić poleceniami:
 
@@ -150,12 +161,12 @@ CLI korzysta z tego samego rdzenia Rust co aplikacja:
 
 ```sh
 cargo run -p optimizer-cli -- optimize photo.jpg --profile balanced --json
-cargo run -p optimizer-cli -- benchmark ./corpus --csv
+cargo run -p optimizer-cli -- benchmark ./corpus --profile maximum-compression --method auto --search-effort auto --warmup 1 --runs 5 --json
 ```
 
-Format lokalnego corpusu opisuje [corpus/README.md](corpus/README.md). Obrazy
-testowe nie są częścią repozytorium. Manifest corpusu powinien zawierać ich
-pochodzenie i licencję.
+Format lokalnego corpusu oraz deterministyczny generator legalnych fixture’ów
+opisuje [corpus/README.md](corpus/README.md). Obrazy testowe nie są częścią
+repozytorium. Manifest corpusu powinien zawierać ich pochodzenie i licencję.
 
 ## Struktura repozytorium
 

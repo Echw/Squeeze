@@ -8,14 +8,12 @@ pub(crate) fn analyze(image: &RgbaImage) -> ImageAnalysis {
     let mut histogram = [0_u32; 256];
     let mut colors = std::collections::HashSet::with_capacity(4096);
     let mut sampled = 0_u32;
-    let mut alpha = false;
     let mut edges = 0_u32;
     let mut noisy = 0_u32;
     let mut flat = 0_u32;
 
     for (index, pixel) in image.pixels().enumerate().step_by(stride) {
-        let [r, g, b, a] = pixel.0;
-        alpha |= a != 255;
+        let [r, g, b, _a] = pixel.0;
         let luma = ((u16::from(r) * 54 + u16::from(g) * 183 + u16::from(b) * 19) >> 8) as u8;
         histogram[luma as usize] += 1;
         if colors.len() < 65_536 {
@@ -58,7 +56,9 @@ pub(crate) fn analyze(image: &RgbaImage) -> ImageAnalysis {
         edge_density,
         noise,
         flat_area_ratio,
-        has_alpha: alpha,
+        // Content statistics are deliberately sampled, but alpha is a safety
+        // property: one transparent pixel must prevent RGB-only conversion.
+        has_alpha: image.pixels().any(|pixel| pixel.0[3] != 255),
     }
 }
 
@@ -81,4 +81,16 @@ fn entropy(histogram: &[u32; 256], total: u32) -> f32 {
             -probability * probability.log2()
         })
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alpha_scan_is_not_limited_to_content_sample() {
+        let mut image = RgbaImage::from_pixel(1_001, 1, image::Rgba([1, 2, 3, 255]));
+        image.get_pixel_mut(1_000, 0).0[3] = 1;
+        assert!(analyze(&image).has_alpha);
+    }
 }

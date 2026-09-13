@@ -20,6 +20,16 @@ pub fn optimize(
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
 ) -> Result<OptimizationResult, OptimizeError> {
+    optimize_with_observer(input, options, progress, cancellation, &NoObserver)
+}
+
+pub fn optimize_with_observer(
+    input: &[u8],
+    options: OptimizeOptions,
+    progress: &dyn ProgressSink,
+    cancellation: &dyn CancellationToken,
+    observer: &dyn OptimizationObserver,
+) -> Result<OptimizationResult, OptimizeError> {
     if options.output_format != OutputFormat::Preserve {
         return Err(OptimizeError::UnsupportedOutputFormat);
     }
@@ -35,12 +45,14 @@ pub fn optimize(
         stage: ProgressStage::Decoding,
         candidate: None,
         total: None,
+        variant: None,
     });
 
     let format = detect_format(input)?;
     if format == ImageFormat::Png && contains_apng_control_chunk(input) {
         return Err(OptimizeError::AnimatedPng);
     }
+    observer.begin(OptimizationOperation::Decode);
     let reader = ImageReader::new(Cursor::new(input))
         .with_guessed_format()
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
@@ -69,6 +81,7 @@ pub fn optimize(
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
     let mut decoded = DynamicImage::from_decoder(decoder)
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
+    observer.end(OptimizationOperation::Decode);
     if format == ImageFormat::Jpeg && options.profile != CompressionProfile::Lossless {
         decoded.apply_orientation(orientation);
     }
@@ -86,8 +99,11 @@ pub fn optimize(
         stage: ProgressStage::Analyzing,
         candidate: None,
         total: None,
+        variant: None,
     });
+    observer.begin(OptimizationOperation::Analysis);
     let analysis = analysis::analyze(&reference);
+    observer.end(OptimizationOperation::Analysis);
 
     let result = match format {
         ImageFormat::Jpeg => jpeg::optimize_jpeg(
@@ -99,6 +115,7 @@ pub fn optimize(
             options,
             progress,
             cancellation,
+            observer,
         )?,
         ImageFormat::Png => png_optimizer::optimize_png(
             input,
@@ -109,6 +126,7 @@ pub fn optimize(
             options,
             progress,
             cancellation,
+            observer,
         )?,
     };
     #[cfg(not(target_arch = "wasm32"))]
@@ -126,6 +144,30 @@ pub(crate) fn check_cancelled(token: &dyn CancellationToken) -> Result<(), Optim
     } else {
         Ok(())
     }
+}
+
+/// Offline quality oracle for benchmarks and regression fixtures. It is never
+/// called by the fast runtime path; callers explicitly opt into both costly
+/// perceptual metrics after optimization completes.
+pub fn measure_quality(
+    reference: &[u8],
+    candidate: &[u8],
+) -> Result<QualityMetrics, OptimizeError> {
+    let reference = image::load_from_memory(reference)
+        .map(DynamicImage::into_rgba8)
+        .map_err(|error| OptimizeError::Decode(error.to_string()))?;
+    let candidate = image::load_from_memory(candidate)
+        .map(DynamicImage::into_rgba8)
+        .map_err(|error| OptimizeError::Decode(error.to_string()))?;
+    if reference.dimensions() != candidate.dimensions() {
+        return Err(OptimizeError::Metric(
+            "quality oracle received images with different dimensions".into(),
+        ));
+    }
+    Ok(QualityMetrics {
+        ssimulacra2: Some(metrics::ssimulacra2_score(&reference, &candidate)?),
+        butteraugli: Some(metrics::butteraugli_score(&reference, &candidate)?),
+    })
 }
 
 fn detect_format(input: &[u8]) -> Result<ImageFormat, OptimizeError> {

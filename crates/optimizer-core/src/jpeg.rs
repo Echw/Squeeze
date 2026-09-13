@@ -12,7 +12,7 @@ struct Winner {
     quality: u8,
     subsampling: Subsampling,
     ssimulacra2: f64,
-    butteraugli: f64,
+    butteraugli: Option<f64>,
     progressive: bool,
 }
 
@@ -26,6 +26,7 @@ pub(crate) fn optimize_jpeg(
     options: OptimizeOptions,
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
+    observer: &dyn OptimizationObserver,
 ) -> Result<OptimizationResult, OptimizeError> {
     if options.profile == CompressionProfile::Lossless {
         let warning = match options.metadata {
@@ -61,17 +62,24 @@ pub(crate) fn optimize_jpeg(
     };
     let mut candidates_tested = 0_u16;
     let mut winner: Option<Winner> = None;
+    let fast_auto =
+        options.method == CompressionMethod::Auto && options.search_effort == SearchEffort::Auto;
+    let candidate_budget = if fast_auto { 1 } else { rules.candidate_budget };
 
     progress.report(ProgressEvent {
         stage: ProgressStage::Searching,
         candidate: Some(0),
-        total: Some(rules.candidate_budget),
+        total: Some(candidate_budget),
+        variant: None,
     });
     for (configuration_index, subsampling) in subsampling_order.into_iter().enumerate() {
-        let configuration_budget =
-            budget_for_configuration(rules.candidate_budget, configuration_index as u16, 3);
+        let configuration_budget = if fast_auto {
+            1
+        } else {
+            budget_for_configuration(candidate_budget, configuration_index as u16, 3)
+        };
         for quality in quality_schedule(rules.start_quality, configuration_budget) {
-            if candidates_tested >= rules.candidate_budget {
+            if candidates_tested >= candidate_budget {
                 break;
             }
             check_cancelled(cancellation)?;
@@ -79,8 +87,13 @@ pub(crate) fn optimize_jpeg(
             progress.report(ProgressEvent {
                 stage: ProgressStage::Searching,
                 candidate: Some(candidates_tested),
-                total: Some(rules.candidate_budget),
+                total: Some(candidate_budget),
+                variant: Some(format!(
+                    "JPEG Q{quality}, {}",
+                    subsampling_name(subsampling)
+                )),
             });
+            observer.begin(OptimizationOperation::PngEncode);
             let bytes = encode(
                 &rgb,
                 width,
@@ -92,20 +105,36 @@ pub(crate) fn optimize_jpeg(
                 options.metadata,
                 options.limits,
             )?;
+            observer.end(OptimizationOperation::PngEncode);
+            observer.begin(OptimizationOperation::CandidateDecode);
             let decoded = decode_candidate(&bytes)?;
+            observer.end(OptimizationOperation::CandidateDecode);
             progress.report(ProgressEvent {
                 stage: ProgressStage::Measuring,
                 candidate: Some(candidates_tested),
                 total: Some(rules.candidate_budget),
+                variant: Some(format!(
+                    "JPEG Q{quality}, {}",
+                    subsampling_name(subsampling)
+                )),
             });
+            observer.begin(OptimizationOperation::Ssimulacra2);
             let score = ssimulacra2_score(&reference, &decoded)?;
+            observer.end(OptimizationOperation::Ssimulacra2);
             if score < rules.ssimulacra2 {
                 continue;
             }
-            let butteraugli = butteraugli_score(&reference, &decoded)?;
-            if butteraugli > rules.butteraugli {
-                continue;
-            }
+            let butteraugli = if fast_auto {
+                None
+            } else {
+                observer.begin(OptimizationOperation::Butteraugli);
+                let value = butteraugli_score(&reference, &decoded)?;
+                observer.end(OptimizationOperation::Butteraugli);
+                if value > rules.butteraugli {
+                    continue;
+                }
+                Some(value)
+            };
             let mut candidate = Winner {
                 bytes,
                 quality,
@@ -114,28 +143,31 @@ pub(crate) fn optimize_jpeg(
                 butteraugli,
                 progressive: false,
             };
-            let progressive_bytes = encode(
-                &rgb,
-                width,
-                height,
-                quality,
-                subsampling,
-                true,
-                &metadata,
-                options.metadata,
-                options.limits,
-            )?;
-            if progressive_bytes.len() < candidate.bytes.len() {
-                let progressive_decoded = decode_candidate(&progressive_bytes)?;
-                let progressive_ssim = ssimulacra2_score(&reference, &progressive_decoded)?;
-                let progressive_butteraugli = butteraugli_score(&reference, &progressive_decoded)?;
-                if progressive_ssim >= rules.ssimulacra2
-                    && progressive_butteraugli <= rules.butteraugli
-                {
-                    candidate.bytes = progressive_bytes;
-                    candidate.ssimulacra2 = progressive_ssim;
-                    candidate.butteraugli = progressive_butteraugli;
-                    candidate.progressive = true;
+            if !fast_auto {
+                let progressive_bytes = encode(
+                    &rgb,
+                    width,
+                    height,
+                    quality,
+                    subsampling,
+                    true,
+                    &metadata,
+                    options.metadata,
+                    options.limits,
+                )?;
+                if progressive_bytes.len() < candidate.bytes.len() {
+                    let progressive_decoded = decode_candidate(&progressive_bytes)?;
+                    let progressive_ssim = ssimulacra2_score(&reference, &progressive_decoded)?;
+                    let progressive_butteraugli =
+                        butteraugli_score(&reference, &progressive_decoded)?;
+                    if progressive_ssim >= rules.ssimulacra2
+                        && progressive_butteraugli <= rules.butteraugli
+                    {
+                        candidate.bytes = progressive_bytes;
+                        candidate.ssimulacra2 = progressive_ssim;
+                        candidate.butteraugli = Some(progressive_butteraugli);
+                        candidate.progressive = true;
+                    }
                 }
             }
             if winner
@@ -150,6 +182,7 @@ pub(crate) fn optimize_jpeg(
         stage: ProgressStage::Finalizing,
         candidate: None,
         total: None,
+        variant: None,
     });
     let Some(winner) = winner else {
         return Ok(passthrough(
@@ -187,7 +220,7 @@ pub(crate) fn optimize_jpeg(
             saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
             metrics: QualityMetrics {
                 ssimulacra2: Some(winner.ssimulacra2),
-                butteraugli: Some(winner.butteraugli),
+                butteraugli: winner.butteraugli,
             },
             strategy: SelectedStrategy {
                 encoder: "mozjpeg-rs".into(),
@@ -196,6 +229,14 @@ pub(crate) fn optimize_jpeg(
                 progressive: Some(winner.progressive),
                 palette_colors: None,
                 dithering: None,
+                quality_guard: Some(
+                    if fast_auto {
+                        "ssimulacra2"
+                    } else {
+                        "ssimulacra2+butteraugli"
+                    }
+                    .into(),
+                ),
                 lossless: false,
             },
             candidates_tested,
@@ -334,6 +375,7 @@ fn passthrough(
                 progressive: None,
                 palette_colors: None,
                 dithering: None,
+                quality_guard: None,
                 lossless: true,
             },
             candidates_tested: 0,

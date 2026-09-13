@@ -12,5 +12,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+libc.workspace = true
 optimizer-core = { version = "0.1.0", path = "../optimizer-core" }
 serde_json.workspace = true
+serde.workspace = true
+png.workspace = true

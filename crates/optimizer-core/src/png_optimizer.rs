@@ -16,7 +16,8 @@ struct PngWinner {
     colors: u16,
     dithered: bool,
     ssimulacra2: f64,
-    butteraugli: f64,
+    butteraugli: Option<f64>,
+    quality_guard: &'static str,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -29,13 +30,22 @@ pub(crate) fn optimize_png(
     options: OptimizeOptions,
     progress: &dyn ProgressSink,
     cancellation: &dyn CancellationToken,
+    observer: &dyn OptimizationObserver,
 ) -> Result<OptimizationResult, OptimizeError> {
     let bit_depth = input.get(24).copied().unwrap_or(8);
+    let sensitive_chunks = has_sensitive_png_chunks(input);
+    // Measurements on several PNG sizes showed palette/metric work needs far
+    // more than the old 20 B/pixel admission estimate. Keep a 20% margin.
+    let fast_working_bytes = u64::from(width)
+        .saturating_mul(u64::from(height))
+        .saturating_mul(192)
+        .saturating_add(input.len() as u64 * 2);
     let force_lossless = options.method == CompressionMethod::Lossless
         || options.profile == CompressionProfile::Lossless
         || bit_depth == 16
         || analysis.has_alpha
-        || has_color_management_chunks(input);
+        || sensitive_chunks
+        || fast_working_bytes > options.limits.max_working_bytes;
     if force_lossless {
         let mut warnings = Vec::new();
         if options.profile != CompressionProfile::Lossless {
@@ -48,11 +58,14 @@ pub(crate) fn optimize_png(
                 warnings
                     .push("PNG z kanałem alpha używa w v1 bezpiecznej ścieżki lossless.".into());
             }
-            if has_color_management_chunks(input) {
+            if sensitive_chunks {
                 warnings.push(
                     "Zachowano osadzony profil i informacje o kolorze przez ścieżkę lossless."
                         .into(),
                 );
+            }
+            if fast_working_bytes > options.limits.max_working_bytes {
+                warnings.push("Paleta i pomiary przekroczyłyby limit pamięci; użyto bezpiecznej ścieżki lossless.".into());
             }
         }
         if options.method == CompressionMethod::Palette {
@@ -76,6 +89,7 @@ pub(crate) fn optimize_png(
             cancellation,
             options.limits,
             None,
+            observer,
         );
     }
 
@@ -89,24 +103,54 @@ pub(crate) fn optimize_png(
     });
     let quantette_image =
         ImageBuf::try_from(rgb).map_err(|error| OptimizeError::Encode(error.to_string()))?;
-    let palette_sizes = palette_schedule(analysis.estimated_colors);
+    let fast_auto = options.method == CompressionMethod::Auto
+        && options.search_effort == SearchEffort::Auto
+        && options.profile == CompressionProfile::MaximumCompression
+        && !matches!(analysis.kind, ContentKind::Photo)
+        && analysis.noise < 0.08;
+    let manual_palette =
+        options.method == CompressionMethod::Palette && options.palette_colors.is_some();
+    let palette_sizes = if manual_palette {
+        vec![
+            options
+                .palette_colors
+                .expect("manual palette has a colour count"),
+        ]
+    } else if fast_auto {
+        vec![256]
+    } else {
+        palette_schedule(analysis.estimated_colors)
+    };
     let mut candidates_tested = 0_u16;
     let mut winner: Option<PngWinner> = None;
 
-    let candidate_budget = match options.method {
-        // Smart evaluates only the closest palette candidates. The full budget
-        // remains available to the explicit palette and comparison modes.
-        CompressionMethod::Auto if should_try_palette(&analysis) => rules.candidate_budget.min(3),
-        CompressionMethod::Auto => rules.candidate_budget.min(2),
-        _ => rules.candidate_budget,
+    let candidate_budget = if fast_auto || manual_palette {
+        1
+    } else {
+        match options.method {
+            // Smart evaluates only the closest palette candidates. The full budget
+            // remains available to the explicit palette and comparison modes.
+            CompressionMethod::Auto if should_try_palette(&analysis) => {
+                rules.candidate_budget.min(3)
+            }
+            CompressionMethod::Auto => rules.candidate_budget.min(2),
+            _ => rules.candidate_budget,
+        }
     };
     progress.report(ProgressEvent {
         stage: ProgressStage::Searching,
         candidate: Some(0),
         total: Some(candidate_budget),
+        variant: None,
     });
     'search: for colors in palette_sizes {
-        for dithered in [false, true] {
+        for dithered in if manual_palette {
+            vec![options.palette_dithering == PaletteDithering::FloydSteinberg]
+        } else if fast_auto {
+            vec![false]
+        } else {
+            vec![false, true]
+        } {
             if candidates_tested >= candidate_budget {
                 break 'search;
             }
@@ -116,6 +160,7 @@ pub(crate) fn optimize_png(
                 stage: ProgressStage::Searching,
                 candidate: Some(candidates_tested),
                 total: Some(candidate_budget),
+                variant: Some(palette_variant_name(colors, dithered)),
             });
             let palette_size = PaletteSize::try_from(colors)
                 .map_err(|error| OptimizeError::Encode(error.to_string()))?;
@@ -127,39 +172,64 @@ pub(crate) fn optimize_png(
             } else {
                 pipeline.ditherer(None::<FloydSteinberg>)
             };
+            observer.begin(if dithered {
+                OptimizationOperation::Dithering
+            } else {
+                OptimizationOperation::PaletteBuild
+            });
             let indexed = pipeline
                 .input_image(quantette_image.as_ref())
                 .output_srgb8_indexed_image();
+            observer.end(if dithered {
+                OptimizationOperation::Dithering
+            } else {
+                OptimizationOperation::PaletteBuild
+            });
+            observer.begin(OptimizationOperation::PngEncode);
             let bytes = encode_indexed_png(width, height, indexed.palette(), indexed.indices())?;
+            observer.end(OptimizationOperation::PngEncode);
+            observer.begin(OptimizationOperation::CandidateDecode);
             let decoded = decode_png(&bytes)?;
+            observer.end(OptimizationOperation::CandidateDecode);
             progress.report(ProgressEvent {
                 stage: ProgressStage::Measuring,
                 candidate: Some(candidates_tested),
                 total: Some(candidate_budget),
+                variant: Some(palette_variant_name(colors, dithered)),
             });
+            observer.begin(OptimizationOperation::Ssimulacra2);
             let score = ssimulacra2_score(&reference, &decoded)?;
+            observer.end(OptimizationOperation::Ssimulacra2);
             if score < rules.png_palette_ssimulacra2 {
                 continue;
             }
-            let butteraugli = butteraugli_score(&reference, &decoded)?;
-            if butteraugli > rules.png_palette_butteraugli {
-                continue;
-            }
+            let butteraugli = if fast_auto {
+                None
+            } else {
+                observer.begin(OptimizationOperation::Butteraugli);
+                let score = butteraugli_score(&reference, &decoded)?;
+                observer.end(OptimizationOperation::Butteraugli);
+                if score > rules.png_palette_butteraugli {
+                    continue;
+                }
+                Some(score)
+            };
+            // Recompression cannot change decoded pixels. Preserve the metric
+            // above rather than decoding and measuring the candidate again.
+            observer.begin(OptimizationOperation::FinalRecompress);
             let optimized = smallest_oxipng(&bytes, options.limits)?;
-            let optimized_decoded = decode_png(&optimized)?;
-            let final_ssim = ssimulacra2_score(&reference, &optimized_decoded)?;
-            let final_butteraugli = butteraugli_score(&reference, &optimized_decoded)?;
-            if final_ssim < rules.png_palette_ssimulacra2
-                || final_butteraugli > rules.png_palette_butteraugli
-            {
-                continue;
-            }
+            observer.end(OptimizationOperation::FinalRecompress);
             let candidate = PngWinner {
                 bytes: optimized,
                 colors,
                 dithered,
-                ssimulacra2: final_ssim,
-                butteraugli: final_butteraugli,
+                ssimulacra2: score,
+                butteraugli,
+                quality_guard: if fast_auto {
+                    "ssimulacra2"
+                } else {
+                    "ssimulacra2+butteraugli"
+                },
             };
             if winner
                 .as_ref()
@@ -173,6 +243,7 @@ pub(crate) fn optimize_png(
         stage: ProgressStage::Finalizing,
         candidate: None,
         total: None,
+        variant: None,
     });
     let Some(winner) = winner else {
         if options.method == CompressionMethod::Palette {
@@ -196,13 +267,18 @@ pub(crate) fn optimize_png(
             cancellation,
             options.limits,
             None,
+            observer,
         );
     };
-    let lossless = if matches!(
-        options.method,
-        CompressionMethod::Auto | CompressionMethod::Search
-    ) {
-        Some(smallest_oxipng(input, options.limits)?)
+    let lossless = if !fast_auto
+        && matches!(
+            options.method,
+            CompressionMethod::Auto | CompressionMethod::Search
+        ) {
+        observer.begin(OptimizationOperation::FinalRecompress);
+        let candidate = smallest_oxipng(input, options.limits)?;
+        observer.end(OptimizationOperation::FinalRecompress);
+        Some(candidate)
     } else {
         None
     };
@@ -221,6 +297,7 @@ pub(crate) fn optimize_png(
             cancellation,
             options.limits,
             lossless,
+            observer,
         );
     }
     if winner.bytes.len() >= input.len() {
@@ -248,7 +325,7 @@ pub(crate) fn optimize_png(
             saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
             metrics: QualityMetrics {
                 ssimulacra2: Some(winner.ssimulacra2),
-                butteraugli: Some(winner.butteraugli),
+                butteraugli: winner.butteraugli,
             },
             strategy: SelectedStrategy {
                 encoder: "quantette + oxipng".into(),
@@ -264,6 +341,7 @@ pub(crate) fn optimize_png(
                     }
                     .into(),
                 ),
+                quality_guard: Some(winner.quality_guard.into()),
                 lossless: false,
             },
             candidates_tested,
@@ -294,6 +372,7 @@ fn optimize_lossless(
     cancellation: &dyn CancellationToken,
     limits: ResourceLimits,
     precomputed: Option<Vec<u8>>,
+    observer: &dyn OptimizationObserver,
 ) -> Result<OptimizationResult, OptimizeError> {
     #[cfg(target_arch = "wasm32")]
     warnings.push(
@@ -304,10 +383,16 @@ fn optimize_lossless(
         stage: ProgressStage::Finalizing,
         candidate: None,
         total: None,
+        variant: None,
     });
     let optimized = match precomputed {
         Some(bytes) => bytes,
-        None => smallest_oxipng(input, limits)?,
+        None => {
+            observer.begin(OptimizationOperation::FinalRecompress);
+            let bytes = smallest_oxipng(input, limits)?;
+            observer.end(OptimizationOperation::FinalRecompress);
+            bytes
+        }
     };
     if optimized.len() >= input.len() {
         warnings.push("PNG był już zoptymalizowany.".into());
@@ -320,6 +405,7 @@ fn optimize_lossless(
             warnings,
         ));
     }
+    observer.begin(OptimizationOperation::LosslessVerification);
     let before = image::load_from_memory_with_format(input, image::ImageFormat::Png)
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
     let after = image::load_from_memory_with_format(&optimized, image::ImageFormat::Png)
@@ -334,6 +420,7 @@ fn optimize_lossless(
             "lossless PNG verification failed; decoded pixels changed".into(),
         ));
     }
+    observer.end(OptimizationOperation::LosslessVerification);
     let optimized_size = optimized.len();
     let saved_bytes = input.len() - optimized_size;
     Ok(OptimizationResult {
@@ -358,6 +445,7 @@ fn optimize_lossless(
                 progressive: None,
                 palette_colors: None,
                 dithering: None,
+                quality_guard: None,
                 lossless: true,
             },
             candidates_tested,
@@ -575,7 +663,15 @@ fn palette_schedule(estimated: u32) -> Vec<u16> {
     values
 }
 
-fn has_color_management_chunks(input: &[u8]) -> bool {
+fn palette_variant_name(colors: u16, dithered: bool) -> String {
+    if dithered {
+        format!("Paleta {colors} kolorów z ditheringiem")
+    } else {
+        format!("Paleta {colors} kolorów bez ditheringu")
+    }
+}
+
+fn has_sensitive_png_chunks(input: &[u8]) -> bool {
     let mut cursor = 8_usize;
     while cursor + 12 <= input.len() {
         let length = u32::from_be_bytes([
@@ -588,7 +684,10 @@ fn has_color_management_chunks(input: &[u8]) -> bool {
             break;
         }
         let kind = &input[cursor + 4..cursor + 8];
-        if matches!(kind, b"iCCP" | b"gAMA" | b"cHRM" | b"sRGB" | b"cICP") {
+        if matches!(
+            kind,
+            b"iCCP" | b"gAMA" | b"cHRM" | b"sRGB" | b"cICP" | b"eXIf"
+        ) {
             return true;
         }
         if kind == b"IEND" {
@@ -629,6 +728,7 @@ fn passthrough(
                 progressive: None,
                 palette_colors: None,
                 dithering: None,
+                quality_guard: None,
                 lossless: true,
             },
             candidates_tested,
@@ -707,11 +807,18 @@ mod tests {
             options,
             &NoProgress,
             &NeverCancelled,
+            &NoObserver,
         )
         .unwrap();
 
         assert!(!result.report.strategy.lossless);
         assert_eq!(result.report.strategy.palette_colors, Some(256));
+        assert_eq!(result.report.strategy.dithering.as_deref(), Some("none"));
+        assert_eq!(
+            result.report.strategy.quality_guard.as_deref(),
+            Some("ssimulacra2")
+        );
+        assert_eq!(result.report.candidates_tested, 1);
         assert!(result.report.saved_percent > 40.0);
     }
 
@@ -760,6 +867,15 @@ mod tests {
 
         assert!(!should_try_palette(&photo));
         assert!(should_try_palette(&graphic));
+    }
+
+    #[test]
+    fn sensitive_chunks_include_orientation_metadata() {
+        let mut input = b"\x89PNG\r\n\x1a\n".to_vec();
+        input.extend_from_slice(&0_u32.to_be_bytes());
+        input.extend_from_slice(b"eXIf");
+        input.extend_from_slice(&[0; 4]);
+        assert!(has_sensitive_png_chunks(&input));
     }
 
     #[test]
