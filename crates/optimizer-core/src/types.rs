@@ -237,11 +237,13 @@ pub enum OptimizeError {
 pub(crate) struct ProfileRules {
     pub ssimulacra2: f64,
     pub butteraugli: f64,
+    pub png_palette_ssimulacra2: f64,
+    pub png_palette_butteraugli: f64,
     pub candidate_budget: u16,
     pub start_quality: u8,
 }
 
-pub(crate) const PROFILE_SET_VERSION: u16 = 2;
+pub(crate) const PROFILE_SET_VERSION: u16 = 3;
 
 impl CompressionProfile {
     pub(crate) fn rules(self, effort: SearchEffort) -> Option<ProfileRules> {
@@ -250,18 +252,26 @@ impl CompressionProfile {
             Self::MaximumQuality => Some(ProfileRules {
                 ssimulacra2: 99.0,
                 butteraugli: 1.0,
+                png_palette_ssimulacra2: 99.0,
+                png_palette_butteraugli: 1.0,
                 candidate_budget: if detailed { 24 } else { 8 },
                 start_quality: 96,
             }),
             Self::Balanced => Some(ProfileRules {
                 ssimulacra2: 97.0,
                 butteraugli: 1.5,
+                png_palette_ssimulacra2: 97.0,
+                png_palette_butteraugli: 1.5,
                 candidate_budget: if detailed { 36 } else { 12 },
                 start_quality: 92,
             }),
             Self::MaximumCompression => Some(ProfileRules {
                 ssimulacra2: 93.0,
                 butteraugli: 2.0,
+                // Calibrated against real-world indexed PNG output from TinyPNG.
+                // JPEG keeps the stricter thresholds above.
+                png_palette_ssimulacra2: 77.0,
+                png_palette_butteraugli: 4.5,
                 candidate_budget: if detailed { 48 } else { 16 },
                 start_quality: 86,
             }),

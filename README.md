@@ -19,6 +19,11 @@ są wysyłane na serwer.
 Limity wejścia to 100 MB i 24 MP na plik. Obsługiwane są JPEG i PNG. AVIF oraz
 przetwarzanie na serwerze pozostają poza obecnym zakresem.
 
+Profil `Mocna kompresja` pozwala na wyraźniejszą redukcję kolorów PNG. Zachowuje
+format i wymiary, ale wynik jest stratny, dlatego przed pobraniem warto użyć
+porównania. Profile `Zbalansowana` i `Bardzo wysoka` pozostają bardziej
+zachowawcze.
+
 ## Technologie
 
 - Vite i vanilla TypeScript dla interfejsu;

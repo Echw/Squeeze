@@ -138,18 +138,20 @@ pub(crate) fn optimize_png(
                 total: Some(candidate_budget),
             });
             let score = ssimulacra2_score(&reference, &decoded)?;
-            if score < rules.ssimulacra2 {
+            if score < rules.png_palette_ssimulacra2 {
                 continue;
             }
             let butteraugli = butteraugli_score(&reference, &decoded)?;
-            if butteraugli > rules.butteraugli {
+            if butteraugli > rules.png_palette_butteraugli {
                 continue;
             }
             let optimized = smallest_oxipng(&bytes, options.limits)?;
             let optimized_decoded = decode_png(&optimized)?;
             let final_ssim = ssimulacra2_score(&reference, &optimized_decoded)?;
             let final_butteraugli = butteraugli_score(&reference, &optimized_decoded)?;
-            if final_ssim < rules.ssimulacra2 || final_butteraugli > rules.butteraugli {
+            if final_ssim < rules.png_palette_ssimulacra2
+                || final_butteraugli > rules.png_palette_butteraugli
+            {
                 continue;
             }
             let candidate = PngWinner {
@@ -518,6 +520,7 @@ fn encode_indexed_png(
     palette: &[quantette::deps::palette::Srgb<u8>],
     indices: &[u8],
 ) -> Result<Vec<u8>, OptimizeError> {
+    let (palette, indices) = sort_palette_by_luma(palette, indices);
     let mut output = Vec::new();
     {
         let mut encoder = png::Encoder::new(Cursor::new(&mut output), width, height);
@@ -532,10 +535,30 @@ fn encode_indexed_png(
             .write_header()
             .map_err(|error| OptimizeError::Encode(error.to_string()))?;
         writer
-            .write_image_data(indices)
+            .write_image_data(&indices)
             .map_err(|error| OptimizeError::Encode(error.to_string()))?;
     }
     Ok(output)
+}
+
+fn sort_palette_by_luma(
+    palette: &[quantette::deps::palette::Srgb<u8>],
+    indices: &[u8],
+) -> (Vec<quantette::deps::palette::Srgb<u8>>, Vec<u8>) {
+    let mut order = (0..palette.len()).collect::<Vec<_>>();
+    order.sort_unstable_by_key(|&index| {
+        let color = palette[index];
+        std::cmp::Reverse(
+            u32::from(color.red) * 299 + u32::from(color.green) * 587 + u32::from(color.blue) * 114,
+        )
+    });
+    let mut remap = [0_u8; 256];
+    for (new, &old) in order.iter().enumerate() {
+        remap[old] = new as u8;
+    }
+    let sorted_palette = order.into_iter().map(|index| palette[index]).collect();
+    let sorted_indices = indices.iter().map(|&index| remap[index as usize]).collect();
+    (sorted_palette, sorted_indices)
 }
 
 fn decode_png(bytes: &[u8]) -> Result<RgbaImage, OptimizeError> {
@@ -621,6 +644,98 @@ fn passthrough(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strongest_profile_has_a_separate_png_palette_quality_envelope() {
+        let rules = CompressionProfile::MaximumCompression
+            .rules(SearchEffort::Auto)
+            .unwrap();
+
+        assert_eq!(rules.ssimulacra2, 93.0);
+        assert_eq!(rules.butteraugli, 2.0);
+        assert_eq!(rules.png_palette_ssimulacra2, 77.0);
+        assert_eq!(rules.png_palette_butteraugli, 4.5);
+    }
+
+    #[test]
+    fn strongest_profile_reduces_a_high_color_png_to_a_palette() {
+        let width = 256;
+        let height = 192;
+        let reference = RgbaImage::from_fn(width, height, |x, y| {
+            let field = ((x / 64 + y / 48) % 3) as u8;
+            let noise = x
+                .wrapping_mul(73_856_093)
+                .wrapping_add(y.wrapping_mul(19_349_663))
+                .rotate_left((x % 17) + 1);
+            image::Rgba([
+                72_u8
+                    .saturating_add(field * 38)
+                    .saturating_add((noise & 7) as u8),
+                94_u8
+                    .saturating_add(field * 28)
+                    .saturating_add(((noise >> 3) & 7) as u8),
+                54_u8
+                    .saturating_add(field * 19)
+                    .saturating_add(((noise >> 6) & 7) as u8),
+                255,
+            ])
+        });
+        let mut input = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(Cursor::new(&mut input), width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder.set_compression(png::Compression::Fast);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(reference.as_raw())
+                .unwrap();
+        }
+        let analysis = crate::analysis::analyze(&reference);
+        let options = OptimizeOptions {
+            profile: CompressionProfile::MaximumCompression,
+            ..OptimizeOptions::default()
+        };
+
+        let result = optimize_png(
+            &input,
+            reference,
+            width,
+            height,
+            analysis,
+            options,
+            &NoProgress,
+            &NeverCancelled,
+        )
+        .unwrap();
+
+        assert!(!result.report.strategy.lossless);
+        assert_eq!(result.report.strategy.palette_colors, Some(256));
+        assert!(result.report.saved_percent > 40.0);
+    }
+
+    #[test]
+    fn palette_sort_keeps_each_index_bound_to_its_color() {
+        let palette = vec![
+            quantette::deps::palette::Srgb::new(10, 10, 10),
+            quantette::deps::palette::Srgb::new(240, 240, 240),
+            quantette::deps::palette::Srgb::new(120, 120, 120),
+        ];
+        let indices = vec![0, 1, 2, 1, 0];
+
+        let (sorted, remapped) = sort_palette_by_luma(&palette, &indices);
+        let restored = remapped
+            .iter()
+            .map(|&index| sorted[index as usize])
+            .collect::<Vec<_>>();
+        let expected = indices
+            .iter()
+            .map(|&index| palette[index as usize])
+            .collect::<Vec<_>>();
+
+        assert_eq!(restored, expected);
+    }
 
     #[test]
     fn smart_limits_palette_budget_for_high_colour_photographs() {

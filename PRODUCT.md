@@ -24,6 +24,7 @@ Silnik działa w przeglądarce i ocenia kandydatów za pomocą metryk percepcyjn
 - Wyjście domyślne zachowuje format; opcjonalna konwersja prowadzi do WebP.
 - Autostart jest domyślnie włączony i zapamiętywany na urządzeniu.
 - Rust/WASM pozostaje wspólnym silnikiem dla kompresji zachowującej format; WebP działa jako lokalny kodek w Workerze.
+- Profil Mocna kompresja może redukować nieprzezroczysty PNG do palety 256 kolorów. Używa osobnego progu jakości, skalibrowanego na dostarczonej parze oryginał/wynik TinyPNG; pozostałe profile zachowują ostrzejsze progi.
 - PNG z alpha, 16-bit lub osadzonym zarządzaniem kolorem korzysta z bezpiecznej ścieżki, gdy zachowuje format.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
 
