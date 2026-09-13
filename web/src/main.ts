@@ -115,7 +115,7 @@ class AppController {
     const element = get("engine-status");
     const copy = element.querySelector<HTMLElement>("span:last-child")!;
     element.className = `engine-status engine-status--${engine}`;
-    copy.textContent = engine === "loading" ? "Przygotowuję lokalny silnik…" : engine === "error" ? "Silnik jest niedostępny. Ponów zadanie, aby spróbować ponownie." : "Silnik gotowy — przetwarzanie jest lokalne.";
+    copy.textContent = engine === "loading" ? "Uruchamiam silnik" : engine === "error" ? "Błąd silnika" : "Gotowy";
     const preserveOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="preserve"]')!;
     const webpOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="webp"]')!;
     preserveOption.disabled = capabilities?.preserve === false;

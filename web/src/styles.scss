@@ -12,8 +12,9 @@ $ease: cubic-bezier(.22, 1, .36, 1);
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-:root { color: $ink; background: $paper; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; }
+:root { min-height: 100%; color: $ink; background: $paper; font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif; font-synthesis: none; text-rendering: optimizeLegibility; }
 body { min-width: 320px; min-height: 100vh; margin: 0; background: $paper; }
+#app { min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; }
 button, select, input { font: inherit; }
 button, select { color: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
@@ -22,10 +23,9 @@ svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-l
 
 .site-header, .site-footer, main { width: min(1080px, calc(100% - 40px)); margin-inline: auto; }
 .site-header { height: 76px; display: flex; align-items: center; justify-content: space-between; }
+main { padding-bottom: 60px; flex: 1 0 auto; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: $ink; text-decoration: none; font-size: 19px; font-weight: 780; letter-spacing: -.02em; }
 .brand svg { width: 32px; height: 32px; padding: 6px; border-radius: 10px; color: white; background: $green; }
-.local-status { display: inline-flex; align-items: center; gap: 7px; color: $green-dark; font-size: 13px; font-weight: 680; }
-.local-status svg { width: 17px; }
 
 .intro { padding: 42px 0 30px; display: flex; align-items: end; justify-content: space-between; gap: 40px; }
 .intro h1 { max-width: 660px; margin: 0; font-size: clamp(38px, 5vw, 54px); line-height: 1.02; letter-spacing: -.035em; font-weight: 700; text-wrap: balance; }
@@ -64,10 +64,12 @@ svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-l
 .checkbox { min-height: 42px; display: flex !important; align-items: center; color: $ink !important; cursor: pointer; }
 .checkbox input { width: 17px; height: 17px; accent-color: $green; }
 
-.engine-status { min-height: 34px; padding: 12px 8px 2px; display: flex; align-items: center; gap: 8px; color: $muted; font-size: 12px; }
+.engine-status { display: inline-flex; align-items: center; gap: 8px; color: $muted; font-size: 12px; font-weight: 680; white-space: nowrap; }
 .engine-status--ready { color: $green-dark; }
 .engine-status--error { color: $danger; }
-.engine-status--ready .spinner { width: 8px; height: 8px; border: 0; background: $green; }
+.engine-status--ready .spinner, .engine-status--error .spinner { width: 8px; height: 8px; border: 0; animation: none; }
+.engine-status--ready .spinner { background: $green; }
+.engine-status--error .spinner { background: $danger; }
 .spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid rgba($green, .22); border-top-color: $green; border-radius: 50%; animation: spin 700ms linear infinite; }
 .notices { display: grid; gap: 6px; }
 .notice { margin: 7px 8px 0; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 15px; border-radius: 10px; color: $green-dark; background: $green-soft; font-size: 12px; }
@@ -125,10 +127,7 @@ svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-l
 .summary small { grid-column: 1 / -1; color: #aebbb5; font-size: 11px; }
 .summary .button--primary { background: #269269; }
 
-.privacy-copy { max-width: 690px; margin: 34px auto 60px; display: flex; align-items: flex-start; gap: 12px; color: $muted; font-size: 12px; line-height: 1.55; }
-.privacy-copy svg { width: 20px; flex: 0 0 auto; color: $green; }
-.privacy-copy strong { color: $ink; }
-.site-footer { min-height: 64px; padding: 19px 0; display: flex; justify-content: space-between; border-top: 1px solid $line; color: $muted; font-size: 11px; }
+.site-footer { min-height: 64px; padding: 19px 0; display: flex; flex: 0 0 auto; justify-content: space-between; border-top: 1px solid $line; color: $muted; font-size: 11px; }
 
 .compare-dialog { --compare: 50%; --zoom: 1; --pan-x: 0px; --pan-y: 0px; width: min(1040px, calc(100% - 28px)); max-height: calc(100vh - 28px); padding: 0; overflow: hidden; border: 0; border-radius: 16px; background: $surface; box-shadow: 0 30px 90px rgba(18, 25, 22, .3); }
 .compare-dialog::backdrop { background: rgba(18, 25, 22, .66); }
@@ -154,7 +153,6 @@ svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-l
 @media (max-width: 760px) {
   .site-header, .site-footer, main { width: min(100% - 24px, 1080px); }
   .site-header { height: 64px; }
-  .local-status { font-size: 0; }
   .intro { padding: 26px 2px 22px; display: block; }
   .intro h1 { font-size: clamp(34px, 10vw, 42px); }
   .intro p { margin-top: 14px; font-size: 15px; }
@@ -174,7 +172,6 @@ svg { width: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-l
   .job__actions .button { min-height: 38px; }
   .summary { align-items: stretch; flex-direction: column; }
   .summary .button { width: 100%; }
-  .privacy-copy { margin: 28px 6px 48px; }
   .site-footer { align-items: flex-start; flex-direction: column; gap: 5px; }
   .compare-shell { padding: 9px; }
   .compare-stage { height: 61vh; }
