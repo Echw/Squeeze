@@ -12,10 +12,13 @@ use crate::{check_cancelled, types::*};
 
 const PALETTE_COLORS: u16 = 256;
 const MAX_PALETTE_MEAN_DELTA: f32 = 2.5;
-const MAX_ALPHA_PALETTE_PIXELS: u32 = 1_000_000;
+// A transparent canvas lets a sizeable graphic remain inexpensive in memory:
+// the palette training is bounded by distinct RGBA values, not pixel count.
+// Six megapixels covers common high-resolution logos and gradients without
+// attempting unbounded photo-sized alpha quantization in the browser.
+const MAX_ALPHA_PALETTE_PIXELS: u32 = 6_000_000;
 const MAX_ALPHA_PALETTE_SAMPLES: usize = 100_000;
 const MIN_TRANSPARENT_PIXEL_RATIO: f32 = 0.25;
-const MIN_SEMI_TRANSPARENT_PIXEL_RATIO: f32 = 0.05;
 const MAX_ALPHA_COMPOSITE_MEAN_DELTA: f32 = 1.25;
 const ALPHA_PALETTE_KMEANS_ROUNDS: usize = 16;
 // A very small perceptual curve gives the palette more precision where a
@@ -79,7 +82,7 @@ pub(crate) fn optimize_png(
                 stage: ProgressStage::Compressing,
             });
             observer.begin(OptimizationOperation::PaletteBuild);
-            let indexed = alpha_aware_palette(&reference);
+            let indexed = alpha_aware_palette(&reference, alpha_palette_size(&analysis));
             observer.end(OptimizationOperation::PaletteBuild);
             if let Some(indexed) = indexed {
                 return optimize_alpha_palette(
@@ -271,7 +274,7 @@ fn exact_rgba_palette(reference: &RgbaImage) -> Option<ExactRgbaPalette> {
 }
 
 /// A palette path reserved for images with a sizeable fully-transparent canvas
-/// and genuinely soft alpha edges.  It measures RGBA candidates in a space
+/// and an alpha-bearing foreground. It measures RGBA candidates in a space
 /// where alpha is measured against black and white backgrounds, with a small
 /// perceptual curve on RGB. This keeps soft edges from being treated as
 /// ordinary four-channel colours while preserving more detail over white.
@@ -281,19 +284,29 @@ fn is_alpha_palette_candidate(reference: &RgbaImage) -> bool {
         return false;
     }
     let mut transparent = 0_u32;
-    let mut semi_transparent = 0_u32;
     for pixel in reference.pixels() {
-        match pixel[3] {
-            0 => transparent += 1,
-            255 => {}
-            _ => semi_transparent += 1,
+        if pixel[3] == 0 {
+            transparent += 1;
         }
     }
     transparent as f32 / pixels as f32 >= MIN_TRANSPARENT_PIXEL_RATIO
-        && semi_transparent as f32 / pixels as f32 >= MIN_SEMI_TRANSPARENT_PIXEL_RATIO
 }
 
-fn alpha_aware_palette(reference: &RgbaImage) -> Option<AlphaPalette> {
+/// A flat logo with a very small colour distribution needs fewer entries than
+/// a gradient or a soft illustration. This is an analysis-only decision made
+/// before the one palette build; it never creates alternative encodings.
+fn alpha_palette_size(analysis: &ImageAnalysis) -> usize {
+    if matches!(analysis.kind, ContentKind::Graphic)
+        && analysis.entropy <= 1.0
+        && analysis.flat_area_ratio >= 0.98
+    {
+        20
+    } else {
+        PALETTE_COLORS as usize
+    }
+}
+
+fn alpha_aware_palette(reference: &RgbaImage, palette_size: usize) -> Option<AlphaPalette> {
     let mut histogram = std::collections::BTreeMap::<[u8; 4], u32>::new();
     for pixel in reference.pixels() {
         let color = normalized_alpha_color(pixel.0);
@@ -306,7 +319,7 @@ fn alpha_aware_palette(reference: &RgbaImage) -> Option<AlphaPalette> {
         .into_iter()
         .map(|(color, count)| AlphaSample { color, count })
         .collect::<Vec<_>>();
-    let mut centers = alpha_pca_seed(&samples, PALETTE_COLORS as usize);
+    let mut centers = alpha_pca_seed(&samples, palette_size);
     if centers.len() < 2 {
         return None;
     }
@@ -1266,7 +1279,8 @@ mod tests {
         });
         assert!(is_alpha_palette_candidate(&reference));
 
-        let indexed = alpha_aware_palette(&reference).expect("palette should meet the alpha guard");
+        let indexed = alpha_aware_palette(&reference, PALETTE_COLORS as usize)
+            .expect("palette should meet the alpha guard");
         assert!(indexed.colors.len() <= PALETTE_COLORS as usize);
         assert_eq!(
             indexed.indices.len(),
@@ -1281,6 +1295,31 @@ mod tests {
                 assert_eq!(indexed.colors[*index as usize][3], 0);
             }
         }
+    }
+
+    #[test]
+    fn flat_alpha_graphics_use_the_small_palette_without_affecting_gradients() {
+        let flat_logo = ImageAnalysis {
+            kind: ContentKind::Graphic,
+            entropy: 0.7,
+            estimated_colors: 1_700,
+            edge_density: 0.009,
+            noise: 0.001,
+            flat_area_ratio: 0.989,
+            has_alpha: true,
+        };
+        let gradient = ImageAnalysis {
+            kind: ContentKind::Mixed,
+            entropy: 4.6,
+            estimated_colors: 420_000,
+            edge_density: 0.001,
+            noise: 0.002,
+            flat_area_ratio: 0.993,
+            has_alpha: true,
+        };
+
+        assert_eq!(alpha_palette_size(&flat_logo), 20);
+        assert_eq!(alpha_palette_size(&gradient), PALETTE_COLORS as usize);
     }
 
     #[test]
