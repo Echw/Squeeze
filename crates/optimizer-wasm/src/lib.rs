@@ -5,7 +5,7 @@ use optimizer_core::{
 };
 use wasm_bindgen::prelude::*;
 
-const WORKER_API_VERSION: u8 = 4;
+const WORKER_API_VERSION: u8 = 5;
 
 struct JsProgress<'a>(&'a Function);
 
@@ -75,9 +75,6 @@ pub fn optimize_image(
         let (code, recoverable) = match &error {
             optimizer_core::OptimizeError::Cancelled => ("CANCELLED", true),
             optimizer_core::OptimizeError::UnsupportedFormat => ("UNSUPPORTED_FORMAT", true),
-            optimizer_core::OptimizeError::UnsupportedOutputFormat => {
-                ("UNSUPPORTED_OUTPUT_FORMAT", true)
-            }
             optimizer_core::OptimizeError::AnimatedPng => ("ANIMATED_PNG", true),
             optimizer_core::OptimizeError::InputTooLarge { .. }
             | optimizer_core::OptimizeError::PixelLimit { .. }
@@ -128,9 +125,6 @@ fn map_error(error: optimizer_core::OptimizeError) -> JsValue {
     let (code, recoverable) = match &error {
         optimizer_core::OptimizeError::Cancelled => ("CANCELLED", true),
         optimizer_core::OptimizeError::UnsupportedFormat => ("UNSUPPORTED_FORMAT", true),
-        optimizer_core::OptimizeError::UnsupportedOutputFormat => {
-            ("UNSUPPORTED_OUTPUT_FORMAT", true)
-        }
         optimizer_core::OptimizeError::AnimatedPng => ("ANIMATED_PNG", true),
         optimizer_core::OptimizeError::InputTooLarge { .. }
         | optimizer_core::OptimizeError::PixelLimit { .. }

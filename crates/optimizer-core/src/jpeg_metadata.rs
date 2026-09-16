@@ -3,7 +3,6 @@ use crate::types::OptimizeError;
 #[derive(Default)]
 pub(crate) struct JpegMetadata {
     pub icc: Option<Vec<u8>>,
-    pub exif: Option<Vec<u8>>,
 }
 
 pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
@@ -11,7 +10,6 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
         return Ok(JpegMetadata::default());
     }
     let mut cursor = 2;
-    let mut exif = None;
     let mut icc_parts: Vec<(u8, u8, Vec<u8>)> = Vec::new();
     while cursor + 4 <= input.len() {
         if input[cursor] != 0xff {
@@ -30,9 +28,6 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
             break;
         }
         let payload = &input[cursor + 2..cursor + length];
-        if marker == 0xe1 && payload.starts_with(b"Exif\0\0") {
-            exif = Some(payload[6..].to_vec());
-        }
         if marker == 0xe2 && payload.starts_with(b"ICC_PROFILE\0") && payload.len() > 14 {
             icc_parts.push((payload[12], payload[13], payload[14..].to_vec()));
         }
@@ -61,7 +56,7 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
         validate_icc(&bytes)?;
         Some(bytes)
     };
-    Ok(JpegMetadata { icc, exif })
+    Ok(JpegMetadata { icc })
 }
 
 fn validate_icc(profile: &[u8]) -> Result<(), OptimizeError> {

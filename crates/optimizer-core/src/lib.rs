@@ -30,9 +30,6 @@ pub fn optimize_with_observer(
     cancellation: &dyn CancellationToken,
     observer: &dyn OptimizationObserver,
 ) -> Result<OptimizationResult, OptimizeError> {
-    if options.output_format != OutputFormat::Preserve {
-        return Err(OptimizeError::UnsupportedOutputFormat);
-    }
     #[cfg(not(target_arch = "wasm32"))]
     let started = Instant::now();
     if input.len() > options.limits.max_input_bytes {
@@ -43,9 +40,6 @@ pub fn optimize_with_observer(
     check_cancelled(cancellation)?;
     progress.report(ProgressEvent {
         stage: ProgressStage::Decoding,
-        candidate: None,
-        total: None,
-        variant: None,
     });
 
     let format = detect_format(input)?;
@@ -82,7 +76,7 @@ pub fn optimize_with_observer(
     let mut decoded = DynamicImage::from_decoder(decoder)
         .map_err(|error| OptimizeError::Decode(error.to_string()))?;
     observer.end(OptimizationOperation::Decode);
-    if format == ImageFormat::Jpeg && options.profile != CompressionProfile::Lossless {
+    if format == ImageFormat::Jpeg {
         decoded.apply_orientation(orientation);
     }
     let (width, height) = decoded.dimensions();
@@ -97,9 +91,6 @@ pub fn optimize_with_observer(
     check_cancelled(cancellation)?;
     progress.report(ProgressEvent {
         stage: ProgressStage::Analyzing,
-        candidate: None,
-        total: None,
-        variant: None,
     });
     observer.begin(OptimizationOperation::Analysis);
     let analysis = analysis::analyze(&reference);
@@ -245,23 +236,10 @@ mod tests {
                 max_input_bytes: 2,
                 ..ResourceLimits::default()
             },
-            ..OptimizeOptions::default()
         };
         assert!(matches!(
             optimize(&[0xff, 0xd8, 0xff], options, &NoProgress, &NeverCancelled),
             Err(OptimizeError::InputTooLarge { limit: 2 })
-        ));
-    }
-
-    #[test]
-    fn rejects_an_output_codec_without_an_explicit_adapter() {
-        let options = OptimizeOptions {
-            output_format: OutputFormat::Webp,
-            ..OptimizeOptions::default()
-        };
-        assert!(matches!(
-            optimize(&[0xff, 0xd8, 0xff], options, &NoProgress, &NeverCancelled),
-            Err(OptimizeError::UnsupportedOutputFormat)
         ));
     }
 }

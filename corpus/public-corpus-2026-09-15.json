@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "localRoot": "/private/tmp/squeeze-public-24",
+  "purpose": "Local benchmark and TinyPNG comparison; public files only, never user files.",
+  "items": [
+    {"path":"jpeg/mountain.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/forest.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/lake.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1470770841072-f978cf4d019e?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/road.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/hills.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1472214103451-9374bd1c798e?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/valley.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/house.jpg","kind":"photo","source":"https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"jpeg/architecture.jpg","kind":"photo-large","source":"https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2400&q=95","license":"Unsplash License","licenseUrl":"https://unsplash.com/license"},
+    {"path":"png/emoji-camera.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f4f7.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-chart.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f4ca.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-globe.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f30d.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-grin.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f600.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-laptop.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f4bb.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-package.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f4e6.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-palette.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f3a8.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-puzzle.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f9e9.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-rocket.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f680.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/emoji-target.png","kind":"transparent-graphic","source":"https://raw.githubusercontent.com/googlefonts/noto-emoji/main/png/512/emoji_u1f3af.png","license":"Apache-2.0","licenseUrl":"https://github.com/googlefonts/noto-emoji/blob/main/LICENSE"},
+    {"path":"png/transparency.png","kind":"transparency","source":"https://commons.wikimedia.org/wiki/File:PNG_transparency_demonstration_1.png","license":"CC-BY-SA-3.0 or GFDL-1.2+","licenseUrl":"https://commons.wikimedia.org/wiki/File:PNG_transparency_demonstration_1.png"},
+    {"path":"png/text.png","kind":"text","source":"https://commons.wikimedia.org/wiki/File:Example_image.png","license":"Public domain","licenseUrl":"https://commons.wikimedia.org/wiki/File:Example_image.png"},
+    {"path":"png/screenshot.png","kind":"screenshot-text","source":"https://commons.wikimedia.org/wiki/File:Screenshot!.png","license":"CC-BY-SA-4.0","licenseUrl":"https://commons.wikimedia.org/wiki/File:Screenshot!.png"},
+    {"path":"png/logo-commons.png","kind":"graphic","source":"https://commons.wikimedia.org/wiki/File:Commons-logo-v3.png","license":"Public domain","licenseUrl":"https://commons.wikimedia.org/wiki/File:Commons-logo-v3.png"},
+    {"path":"png/logo-bdl.png","kind":"graphic-large","source":"https://commons.wikimedia.org/wiki/File:Logo_BDL_.png","license":"Public domain","licenseUrl":"https://commons.wikimedia.org/wiki/File:Logo_BDL_.png"},
+    {"path":"png/gradient-large.png","kind":"gradient-large","source":"https://commons.wikimedia.org/wiki/File:File-front-gradient.png","license":"CC0-1.0","licenseUrl":"https://commons.wikimedia.org/wiki/File:File-front-gradient.png"}
+  ]
+}

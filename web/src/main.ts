@@ -1,26 +1,16 @@
 import "./styles.scss";
-import { CompressionQueue, type EngineState, type QueueSettings } from "./queue/compression-queue";
-import { downloadJob, downloadReport, downloadZip } from "./services/downloads";
-import { loadSettings, saveSettings, type AppSettings } from "./settings";
-import type { CompressionJob, CompressionMethod, CompressionProfile, OutputFormat, PaletteDithering, SearchEffort, WorkerCapabilities } from "./types";
+import { CompressionQueue, type EngineState } from "./queue/compression-queue";
+import { downloadJob, downloadZip } from "./services/downloads";
+import { clearRetiredSettings } from "./settings";
+import type { CompressionJob } from "./types";
 import { openComparison } from "./ui/compare-modal";
 import { formatBytes, JobView, type JobAction } from "./ui/job-view";
 
 class AppController {
-  readonly #settings: AppSettings;
-  readonly #queue: CompressionQueue;
+  readonly #queue = new CompressionQueue();
   readonly #views = new Map<string, JobView>();
   readonly #dropzone = get<HTMLElement>("dropzone");
   readonly #input = get<HTMLInputElement>("file-input");
-  readonly #profile = get<HTMLSelectElement>("profile");
-  readonly #outputFormat = get<HTMLSelectElement>("output-format");
-  readonly #autoStart = get<HTMLInputElement>("auto-start");
-  readonly #method = get<HTMLSelectElement>("method");
-  readonly #paletteControls = get<HTMLElement>("palette-controls");
-  readonly #paletteColors = get<HTMLSelectElement>("palette-colors");
-  readonly #paletteDithering = get<HTMLSelectElement>("palette-dithering");
-  readonly #effort = get<HTMLSelectElement>("effort");
-  readonly #expertMode = get<HTMLInputElement>("expert-mode");
   readonly #results = get<HTMLElement>("results");
   readonly #queueElement = get<HTMLElement>("queue");
   readonly #clearButton = get<HTMLButtonElement>("clear-button");
@@ -30,11 +20,7 @@ class AppController {
   #paused = false;
   #unsubscribe?: () => void;
 
-  constructor() {
-    this.#settings = loadSettings();
-    this.applySettingsToForm();
-    this.#queue = new CompressionQueue({ autoStart: this.#settings.autoStart });
-  }
+  constructor() { clearRetiredSettings(); }
 
   mount(): void {
     this.#dropzone.addEventListener("click", () => this.#input.click());
@@ -45,11 +31,10 @@ class AppController {
     for (const eventName of ["dragenter", "dragover"]) this.#dropzone.addEventListener(eventName, (event) => { event.preventDefault(); this.#dropzone.classList.add("is-dragging"); });
     for (const eventName of ["dragleave", "drop"]) this.#dropzone.addEventListener(eventName, (event) => { event.preventDefault(); this.#dropzone.classList.remove("is-dragging"); });
     this.#dropzone.addEventListener("drop", (event) => void this.addFiles(event.dataTransfer?.files));
-    get<HTMLFormElement>("settings").addEventListener("change", () => this.onSettingsChange());
     this.#runButton.addEventListener("click", () => this.#paused ? this.#queue.start() : this.#queue.pause());
     this.#clearButton.addEventListener("click", () => this.#queue.clearCompleted());
     get("download-all").addEventListener("click", () => void this.downloadAll());
-    this.#unsubscribe = this.#queue.subscribe((jobs, paused, engine, capabilities) => this.update(jobs, paused, engine, capabilities));
+    this.#unsubscribe = this.#queue.subscribe((jobs, paused, engine) => this.update(jobs, paused, engine));
     window.addEventListener("pagehide", () => this.dispose(), { once: true });
   }
 
@@ -60,49 +45,15 @@ class AppController {
     const candidates = Array.from(files);
     const validation = await Promise.all(candidates.map(async (file) => ({ file, format: await detectSupportedFormat(file) })));
     const valid = validation.flatMap(({ file, format }) => format
-      ? [new File([file], file.name, { type: `image/${format}`, lastModified: file.lastModified })]
-      : []);
+      ? [new File([file], file.name, { type: `image/${format}`, lastModified: file.lastModified })] : []);
     for (const { file, format } of validation) {
       if (!format) this.showNotice(`Nie dodano „${file.name}”. Plik nie jest prawidłowym obrazem JPEG lub PNG.`, "error");
     }
-    const result = this.#queue.add(valid, this.queueSettings());
+    const result = this.#queue.add(valid);
     for (const file of result.rejected) this.showNotice(`Nie dodano „${file.name}”. Obsługiwane są pliki JPEG i PNG.`, "error");
   }
 
-  private onSettingsChange(): void {
-    this.#settings.profile = this.#profile.value as CompressionProfile;
-    this.#settings.outputFormat = this.#outputFormat.value as OutputFormat;
-    this.#settings.autoStart = this.#autoStart.checked;
-    this.#settings.method = this.#method.value as CompressionMethod;
-    this.#settings.paletteColors = Number(this.#paletteColors.value);
-    this.#settings.paletteDithering = this.#paletteDithering.value as PaletteDithering;
-    this.#settings.searchEffort = this.#effort.value as SearchEffort;
-    this.#settings.expertMode = this.#expertMode.checked;
-    this.#paletteControls.hidden = this.#settings.method !== "palette";
-    saveSettings(this.#settings);
-    this.#queue.setAutoStart(this.#settings.autoStart);
-    const updated = this.#queue.reconfigureQueued(this.queueSettings());
-    if (updated) this.showNotice(`Nowe ustawienia zastosowano do ${updated} oczekujących ${updated === 1 ? "obrazu" : "obrazów"}.`, "info");
-    this.updateViews();
-  }
-
-  private queueSettings(): QueueSettings {
-    return { profile: this.#settings.profile, outputFormat: this.#settings.outputFormat, method: this.#settings.method, paletteColors: this.#settings.paletteColors, paletteDithering: this.#settings.paletteDithering, searchEffort: this.#settings.searchEffort };
-  }
-
-  private applySettingsToForm(): void {
-    this.#profile.value = this.#settings.profile;
-    this.#outputFormat.value = this.#settings.outputFormat;
-    this.#autoStart.checked = this.#settings.autoStart;
-    this.#method.value = this.#settings.method;
-    this.#paletteColors.value = String(this.#settings.paletteColors);
-    this.#paletteDithering.value = this.#settings.paletteDithering;
-    this.#paletteControls.hidden = this.#settings.method !== "palette";
-    this.#effort.value = this.#settings.searchEffort;
-    this.#expertMode.checked = this.#settings.expertMode;
-  }
-
-  private update(jobs: readonly CompressionJob[], paused: boolean, engine: EngineState, capabilities?: WorkerCapabilities): void {
+  private update(jobs: readonly CompressionJob[], paused: boolean, engine: EngineState): void {
     this.#jobs = jobs;
     this.#paused = paused;
     const hasJobs = jobs.length > 0;
@@ -117,29 +68,16 @@ class AppController {
     this.#runButton.hidden = waiting === 0 && active === 0;
     this.#runButton.textContent = paused ? `Kompresuj${waiting ? ` (${waiting})` : ""}` : "Wstrzymaj kolejkę";
     this.#runButton.className = paused ? "button button--primary" : "button button--secondary";
-    this.updateEngine(engine, capabilities);
+    this.updateEngine(engine);
     this.reconcileViews();
     this.updateSummary();
   }
 
-  private updateEngine(engine: EngineState, capabilities?: WorkerCapabilities): void {
+  private updateEngine(engine: EngineState): void {
     const element = get("engine-status");
     const copy = element.querySelector<HTMLElement>("span:last-child")!;
     element.className = `engine-status engine-status--${engine}`;
     copy.textContent = engine === "loading" ? "Uruchamiam silnik" : engine === "error" ? "Błąd silnika" : "Gotowy";
-    const preserveOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="preserve"]')!;
-    const webpOption = this.#outputFormat.querySelector<HTMLOptionElement>('option[value="webp"]')!;
-    preserveOption.disabled = capabilities?.preserve === false;
-    webpOption.disabled = capabilities?.webp === false;
-    if (!capabilities) return;
-    const selectedIsAvailable = this.#outputFormat.value === "preserve" ? capabilities.preserve : capabilities.webp;
-    const fallback = capabilities.preserve ? "preserve" : capabilities.webp ? "webp" : undefined;
-    if (!selectedIsAvailable && fallback) {
-      this.#outputFormat.value = fallback;
-      this.#settings.outputFormat = fallback;
-      saveSettings(this.#settings);
-      this.#queue.reconfigureQueued(this.queueSettings());
-    }
   }
 
   private reconcileViews(): void {
@@ -152,20 +90,17 @@ class AppController {
         this.#views.set(job.id, view);
         this.#queueElement.append(view.element);
       }
-      view.update(job, this.#settings.expertMode);
+      view.update(job);
     }
   }
-
-  private updateViews(): void { for (const job of this.#jobs) this.#views.get(job.id)?.update(job, this.#settings.expertMode); }
 
   private onJobAction(action: JobAction, id: string): void {
     const job = this.#jobs.find((candidate) => candidate.id === id);
     if (!job) return;
     if (action === "cancel") this.#queue.cancel(id);
     else if (action === "remove") this.#queue.remove(id);
-    else if (action === "retry") job.status === "complete" ? this.#queue.rerun(id, this.queueSettings()) : this.#queue.retry(id);
+    else if (action === "retry") job.status === "complete" ? this.#queue.rerun(id) : this.#queue.retry(id);
     else if (action === "download") downloadJob(job);
-    else if (action === "report") downloadReport(job);
     else if (action === "compare") openComparison(job, document.activeElement as HTMLElement);
   }
 
@@ -176,9 +111,9 @@ class AppController {
     const original = complete.reduce((sum, job) => sum + job.file.size, 0);
     const optimized = complete.reduce((sum, job) => sum + job.report!.optimizedSize, 0);
     const delta = original - optimized;
-    get("summary-label").textContent = delta >= 0 ? "Łączna oszczędność" : "Zmiana rozmiaru";
-    get("summary-saving").textContent = `${delta >= 0 ? "−" : "+"}${formatBytes(Math.abs(delta))}`;
-    get("summary-detail").textContent = `${complete.length} ${complete.length === 1 ? "gotowy obraz" : "gotowe obrazy"} · ${original ? Math.abs(delta / original * 100).toFixed(1) : "0"}%`;
+    get("summary-label").textContent = "Łączna oszczędność";
+    get("summary-saving").textContent = `−${formatBytes(Math.max(0, delta))}`;
+    get("summary-detail").textContent = `${complete.length} ${complete.length === 1 ? "gotowy obraz" : "gotowe obrazy"} · ${original ? Math.max(0, delta / original * 100).toFixed(1) : "0"}%`;
     get("download-all").querySelector("span")!.textContent = complete.length === 1 ? "Pobierz obraz" : `Pobierz wszystkie (${complete.length})`;
   }
 
@@ -210,20 +145,22 @@ async function detectSupportedFormat(file: File): Promise<"jpeg" | "png" | undef
   const png = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
     && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a;
   const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (png) return "png";
-  if (jpeg) return "jpeg";
-  return undefined;
+  return png ? "png" : jpeg ? "jpeg" : undefined;
 }
 
 async function bootstrap(): Promise<void> {
   new AppController().mount();
-  if (import.meta.env.PROD && "serviceWorker" in navigator) {
-    try {
-      await navigator.serviceWorker.register("/sw.js");
-    } catch (error) {
-      console.warn("Nie udało się przygotować trybu offline.", error);
-    }
+  if (!("serviceWorker" in navigator)) return;
+  if (import.meta.env.PROD) {
+    try { await navigator.serviceWorker.register("/sw.js"); }
+    catch (error) { console.warn("Nie udało się przygotować trybu offline.", error); }
+    return;
   }
+  // A production build may have registered a worker on this local origin.
+  // Leaving it in place while Vite serves source files can silently run stale
+  // WASM or workers, so development always starts with the current assets.
+  try { await Promise.all((await navigator.serviceWorker.getRegistrations()).map((registration) => registration.unregister())); }
+  catch (error) { console.warn("Nie udało się wyczyścić lokalnego cache deweloperskiego.", error); }
 }
 
 void bootstrap();

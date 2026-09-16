@@ -1,69 +1,27 @@
-export const WORKER_API_VERSION = 4 as const;
+export const WORKER_API_VERSION = 5 as const;
 
-export type CompressionProfile =
-  | "maximumQuality"
-  | "balanced"
-  | "maximumCompression"
-  | "lossless";
-
-export type SearchEffort = "auto" | "detailed";
-
-/** Smart selects one compatible path. Search compares compatible PNG paths before choosing a winner. */
-export type CompressionMethod = "auto" | "search" | "lossless" | "palette";
-export type PaletteDithering = "none" | "floydSteinberg";
-
-/** Output codecs are explicit so a future encoder can never silently change a file format. */
-export type OutputFormat = "preserve" | "webp" | "avif";
-
-export type ProgressStage =
-  | "decoding"
-  | "analyzing"
-  | "searching"
-  | "measuring"
-  | "finalizing";
-
-export interface OptimizationOptions {
-  profile: CompressionProfile;
-  searchEffort: SearchEffort;
-  method: CompressionMethod;
-  paletteColors?: number;
-  paletteDithering?: PaletteDithering;
-  outputFormat: OutputFormat;
-  metadata: "stripPrivate" | "preserveAll";
-  limits: {
-    maxInputBytes: number;
-    maxPixels: number;
-    maxWorkingBytes: number;
-  };
-}
+export type ProgressStage = "decoding" | "analyzing" | "compressing" | "finalizing";
 
 export interface OptimizationReport {
   format: "jpeg" | "png";
-  outputFormat: "jpeg" | "png" | "webp" | "avif";
+  outputFormat: "jpeg" | "png";
   width: number;
   height: number;
   originalSize: number;
   optimizedSize: number;
   savedBytes: number;
   savedPercent: number;
-  metrics: {
-    ssimulacra2: number | null;
-    butteraugli: number | null;
-  };
   strategy: {
     encoder: string;
     quality: number | null;
     chromaSubsampling: string | null;
     progressive: boolean | null;
     paletteColors: number | null;
-    dithering: string | null;
-    qualityGuard: string | null;
     lossless: boolean;
   };
-  candidatesTested: number;
   processingTimeMs: number;
   alreadyOptimized: boolean;
-  profileSetVersion: number;
+  optimizerVersion: number;
   warnings: string[];
   analysis: {
     kind: "photo" | "graphic" | "screenshot" | "mixed";
@@ -77,74 +35,29 @@ export interface OptimizationReport {
 }
 
 export type WorkerRequest =
-  | {
-      version: 4;
-      type: "compress";
-      jobId: string;
-      attempt: number;
-      buffer: ArrayBuffer;
-      options: OptimizationOptions;
-      diagnostics?: boolean;
-    }
-  | { version: 4; type: "cancel"; jobId: string; attempt: number };
+  | { version: 5; type: "compress"; jobId: string; attempt: number; buffer: ArrayBuffer }
+  | { version: 5; type: "cancel"; jobId: string; attempt: number };
 
 export interface WorkerCapabilities {
   preserve: boolean;
-  webp: boolean;
   maxPixels: number;
 }
 
 export type WorkerResponse =
-  | { version: 4; type: "ready"; capabilities: WorkerCapabilities }
-  | {
-      version: 4;
-      type: "progress";
-      jobId: string;
-      attempt: number;
-      stage: ProgressStage;
-      candidate?: number;
-      total?: number;
-      variant?: string;
-    }
-  | {
-      version: 4;
-      type: "complete";
-      jobId: string;
-      attempt: number;
-      result: OptimizationReport;
-      buffer: ArrayBuffer;
-      timings?: Record<string, number>;
-    }
-  | {
-      version: 4;
-      type: "error";
-      jobId: string;
-      attempt: number;
-      code: string;
-      message: string;
-      recoverable: boolean;
-    }
-  | { version: 4; type: "cancelled"; jobId: string; attempt: number };
+  | { version: 5; type: "ready"; capabilities: WorkerCapabilities }
+  | { version: 5; type: "progress"; jobId: string; attempt: number; stage: ProgressStage }
+  | { version: 5; type: "complete"; jobId: string; attempt: number; result: OptimizationReport; buffer: ArrayBuffer }
+  | { version: 5; type: "error"; jobId: string; attempt: number; code: string; message: string; recoverable: boolean }
+  | { version: 5; type: "cancelled"; jobId: string; attempt: number };
 
 export type JobStatus = "queued" | "processing" | "complete" | "error" | "cancelled";
 
 export interface CompressionJob {
   id: string;
   file: File;
-  profile: CompressionProfile;
-  searchEffort: SearchEffort;
-  method: CompressionMethod;
-  paletteColors?: number;
-  paletteDithering?: PaletteDithering;
-  outputFormat: OutputFormat;
-  /** Increments for every run, preventing a late worker response from changing a retry. */
   attempt: number;
-  sourceJobId?: string;
   status: JobStatus;
   stage?: ProgressStage;
-  candidate?: number;
-  total?: number;
-  variant?: string;
   report?: OptimizationReport;
   output?: Uint8Array;
   error?: string;

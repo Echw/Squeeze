@@ -1,47 +1,18 @@
-import type {
-  CompressionJob,
-  CompressionMethod,
-  PaletteDithering,
-  CompressionProfile,
-  OptimizationOptions,
-  OutputFormat,
-  SearchEffort,
-  WorkerRequest,
-  WorkerResponse,
-  WorkerCapabilities,
-} from "../types";
+import type { CompressionJob, WorkerCapabilities, WorkerRequest, WorkerResponse } from "../types";
 import { WORKER_API_VERSION } from "../types";
 
 export type EngineState = "loading" | "ready" | "error";
 type Listener = (jobs: readonly CompressionJob[], paused: boolean, engine: EngineState, capabilities?: WorkerCapabilities) => void;
 
-export interface QueueSettings {
-  profile: CompressionProfile;
-  searchEffort: SearchEffort;
-  method: CompressionMethod;
-  paletteColors?: number;
-  paletteDithering?: PaletteDithering;
-  outputFormat?: OutputFormat;
-}
+export interface CompressionQueueOptions { workerFactory?: () => Worker; }
+export interface AddResult { accepted: number; rejected: File[]; }
 
-export interface CompressionQueueOptions {
-  autoStart?: boolean;
-  workerFactory?: () => Worker;
-}
-
-export interface AddResult {
-  accepted: number;
-  rejected: File[];
-}
-
-/** A deliberately single-worker queue: image encoders compete for a lot of memory. */
+/** One worker keeps WebAssembly memory bounded and the UI order predictable. */
 export class CompressionQueue {
   #jobs: CompressionJob[] = [];
   #worker: Worker;
   #activeId?: string;
-  #paused: boolean;
-  #autoStart: boolean;
-  #manuallyPaused = false;
+  #paused = false;
   #engine: EngineState = "loading";
   #capabilities?: WorkerCapabilities;
   #workerFactory?: () => Worker;
@@ -49,8 +20,6 @@ export class CompressionQueue {
   #previewUrls = new Map<string, string>();
 
   constructor(options: CompressionQueueOptions = {}) {
-    this.#autoStart = options.autoStart ?? true;
-    this.#paused = !this.#autoStart;
     this.#workerFactory = options.workerFactory;
     this.#worker = this.#createWorker();
   }
@@ -61,104 +30,46 @@ export class CompressionQueue {
     return () => this.#listeners.delete(listener);
   }
 
-  add(files: Iterable<File>, settings: QueueSettings, sourceJobId?: string): AddResult {
+  add(files: Iterable<File>): AddResult {
     const rejected: File[] = [];
     let accepted = 0;
     for (const file of files) {
-      if (!isSupported(file)) {
-        rejected.push(file);
-        continue;
-      }
+      if (!isSupported(file)) { rejected.push(file); continue; }
       accepted += 1;
-      this.#jobs.push(this.#newJob(file, settings, sourceJobId));
+      this.#jobs.push({ id: crypto.randomUUID(), file, attempt: 0, status: "queued" });
     }
-    if (accepted && this.#autoStart && !this.#manuallyPaused) this.#paused = false;
     this.#emit();
     void this.#pump();
     return { accepted, rejected };
-  }
-
-  /** Applies batch settings only to work that has not started yet. */
-  reconfigureQueued(settings: QueueSettings): number {
-    let updated = 0;
-    for (const job of this.#jobs) {
-      if (job.status !== "queued") continue;
-      job.profile = settings.profile;
-      job.searchEffort = settings.searchEffort;
-      job.method = isPng(job.file) ? settings.method : "auto";
-      job.paletteColors = settings.paletteColors;
-      job.paletteDithering = settings.paletteDithering;
-      job.outputFormat = settings.outputFormat ?? "preserve";
-      updated += 1;
-    }
-    if (updated) this.#emit();
-    return updated;
   }
 
   start(): void {
     if (!this.#paused) return;
     this.#recoverWorker();
     this.#paused = false;
-    this.#manuallyPaused = false;
     this.#emit();
     void this.#pump();
   }
 
-  pause(): void {
-    if (this.#paused) return;
-    this.#paused = true;
-    this.#manuallyPaused = true;
-    this.#emit();
-  }
+  pause(): void { if (!this.#paused) { this.#paused = true; this.#emit(); } }
 
-  rerun(id: string, settings?: Partial<QueueSettings>): void {
+  rerun(id: string): void {
     const job = this.#find(id);
     if (!job) return;
     this.#recoverWorker();
-    job.profile = settings?.profile ?? job.profile;
-    job.searchEffort = settings?.searchEffort ?? job.searchEffort;
-    job.method = isPng(job.file) ? settings?.method ?? job.method : "auto";
-    job.paletteColors = settings?.paletteColors ?? job.paletteColors;
-    job.paletteDithering = settings?.paletteDithering ?? job.paletteDithering;
-    job.outputFormat = settings?.outputFormat ?? job.outputFormat;
     job.status = "queued";
     job.error = undefined;
     job.errorCode = undefined;
     job.recoverable = undefined;
     job.stage = undefined;
-    job.candidate = undefined;
-    job.total = undefined;
-    job.variant = undefined;
     job.isReprocessing = Boolean(job.output);
     job.attempt += 1;
-    if (this.#autoStart && !this.#manuallyPaused) this.#paused = false;
     this.#emit();
     void this.#pump();
   }
 
-  setAutoStart(enabled: boolean): void {
-    if (enabled === this.#autoStart) return;
-    this.#autoStart = enabled;
-    if (!enabled) {
-      this.#paused = true;
-      this.#emit();
-      return;
-    }
-    if (!this.#manuallyPaused && this.#jobs.some((job) => job.status === "queued")) {
-      this.#paused = false;
-      this.#emit();
-      void this.#pump();
-    }
-  }
-
-  togglePaused(): void {
-    if (this.#paused) this.start();
-    else this.pause();
-  }
-
   clearCompleted(): void {
-    const removable = this.#jobs.filter((job) => ["complete", "cancelled", "error"].includes(job.status));
-    for (const job of removable) this.#revokePreview(job.id);
+    for (const job of this.#jobs) if (["complete", "cancelled", "error"].includes(job.status)) this.#revokePreview(job.id);
     this.#jobs = this.#jobs.filter((job) => !["complete", "cancelled", "error"].includes(job.status));
     this.#emit();
   }
@@ -204,10 +115,7 @@ export class CompressionQueue {
 
   previewUrl(job: CompressionJob): string {
     let url = this.#previewUrls.get(job.id);
-    if (!url) {
-      url = URL.createObjectURL(job.file);
-      this.#previewUrls.set(job.id, url);
-    }
+    if (!url) { url = URL.createObjectURL(job.file); this.#previewUrls.set(job.id, url); }
     return url;
   }
 
@@ -217,27 +125,8 @@ export class CompressionQueue {
     this.#previewUrls.clear();
   }
 
-  #newJob(file: File, settings: QueueSettings, sourceJobId?: string): CompressionJob {
-    return {
-      id: crypto.randomUUID(),
-      file,
-      profile: settings.profile,
-      searchEffort: settings.searchEffort,
-      method: isPng(file) ? settings.method : "auto",
-      paletteColors: settings.paletteColors,
-      paletteDithering: settings.paletteDithering,
-      outputFormat: settings.outputFormat ?? "preserve",
-      attempt: 0,
-      sourceJobId,
-      status: "queued",
-    };
-  }
-
   #createWorker(): Worker {
-    const worker = this.#workerFactory?.() ?? new Worker(new URL("../worker/optimizer.worker.ts", import.meta.url), {
-      type: "module",
-      name: "squeeze-optimizer",
-    });
+    const worker = this.#workerFactory?.() ?? new Worker(new URL("../worker/optimizer.worker.ts", import.meta.url), { type: "module", name: "squeeze-optimizer" });
     worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.#onMessage(event.data);
     worker.onerror = (event) => {
       this.#engine = "error";
@@ -258,13 +147,7 @@ export class CompressionQueue {
   async #pump(): Promise<void> {
     if (this.#paused || this.#activeId || this.#engine !== "ready") return;
     const job = this.#jobs.find((candidate) => candidate.status === "queued");
-    if (!job) {
-      if (!this.#autoStart && !this.#paused) {
-        this.#paused = true;
-        this.#emit();
-      }
-      return;
-    }
+    if (!job) return;
     this.#activeId = job.id;
     job.status = "processing";
     job.stage = "decoding";
@@ -273,14 +156,7 @@ export class CompressionQueue {
     try {
       const buffer = await job.file.arrayBuffer();
       if (job.status !== "processing" || this.#activeId !== job.id || job.attempt !== attempt) return;
-      const request: WorkerRequest = {
-        version: WORKER_API_VERSION,
-        type: "compress",
-        jobId: job.id,
-        attempt,
-        buffer,
-        options: optionsFor(job.profile, job.searchEffort, job.method, job.outputFormat, job.paletteColors, job.paletteDithering),
-      };
+      const request: WorkerRequest = { version: WORKER_API_VERSION, type: "compress", jobId: job.id, attempt, buffer };
       this.#worker.postMessage(request, [buffer]);
     } catch (error) {
       if (job.attempt !== attempt) return;
@@ -298,21 +174,14 @@ export class CompressionQueue {
     if (message.version !== WORKER_API_VERSION) return;
     if (message.type === "ready") {
       this.#capabilities = message.capabilities;
-      this.#engine = message.capabilities.preserve || message.capabilities.webp ? "ready" : "error";
+      this.#engine = message.capabilities.preserve ? "ready" : "error";
       this.#emit();
       if (this.#engine === "ready") void this.#pump();
       return;
     }
     const job = this.#find(message.jobId);
     if (!job || job.attempt !== message.attempt) return;
-    if (message.type === "progress") {
-      job.stage = message.stage;
-      job.candidate = message.candidate;
-      job.total = message.total;
-      job.variant = message.variant;
-      this.#emit();
-      return;
-    }
+    if (message.type === "progress") { job.stage = message.stage; this.#emit(); return; }
     if (message.type === "complete") {
       job.status = "complete";
       job.report = message.result;
@@ -323,19 +192,14 @@ export class CompressionQueue {
       job.error = message.message;
       job.errorCode = message.code;
       job.recoverable = message.recoverable;
-    } else {
-      job.status = "cancelled";
-    }
+    } else job.status = "cancelled";
     job.stage = undefined;
     if (this.#activeId === job.id) this.#activeId = undefined;
     this.#emit();
     void this.#pump();
   }
 
-  #find(id: string): CompressionJob | undefined {
-    return this.#jobs.find((job) => job.id === id);
-  }
-
+  #find(id: string): CompressionJob | undefined { return this.#jobs.find((job) => job.id === id); }
   #recoverWorker(): void {
     if (this.#engine !== "error") return;
     this.#worker.terminate();
@@ -343,58 +207,18 @@ export class CompressionQueue {
     this.#capabilities = undefined;
     this.#worker = this.#createWorker();
   }
-
   #revokePreview(id: string): void {
     const url = this.#previewUrls.get(id);
     if (url) URL.revokeObjectURL(url);
     this.#previewUrls.delete(id);
   }
-
   #emit(): void {
     const snapshot = this.#snapshot();
     for (const listener of this.#listeners) listener(snapshot, this.#paused, this.#engine, this.#capabilities);
   }
-
-  #snapshot(): readonly CompressionJob[] {
-    return this.#jobs.map((job) => ({ ...job, report: job.report ? { ...job.report } : undefined }));
-  }
-}
-
-export function optionsFor(
-  profile: CompressionProfile,
-  searchEffort: SearchEffort = "auto",
-  method: CompressionMethod = "auto",
-  outputFormat: OutputFormat = "preserve",
-  paletteColors?: number,
-  paletteDithering: PaletteDithering = "none",
-): OptimizationOptions {
-  const options: OptimizationOptions = {
-    profile,
-    searchEffort,
-    method,
-    outputFormat,
-    metadata: "stripPrivate",
-    limits: {
-      maxInputBytes: 100 * 1024 * 1024,
-      maxPixels: 24_000_000,
-      maxWorkingBytes: 768 * 1024 * 1024,
-    },
-  };
-  if (method === "palette") {
-    options.paletteColors = paletteColors;
-    options.paletteDithering = paletteDithering;
-  }
-  return options;
+  #snapshot(): readonly CompressionJob[] { return this.#jobs.map((job) => ({ ...job, report: job.report ? { ...job.report } : undefined })); }
 }
 
 function isSupported(file: File): boolean {
-  return file.size > 0
-    && file.size <= 100 * 1024 * 1024
-    && ["image/jpeg", "image/png"].includes(file.type);
-}
-
-function isPng(file: File): boolean {
-  if (file.type === "image/png") return true;
-  if (file.type === "image/jpeg") return false;
-  return /\.png$/i.test(file.name);
+  return file.size > 0 && file.size <= 100 * 1024 * 1024 && ["image/jpeg", "image/png"].includes(file.type);
 }

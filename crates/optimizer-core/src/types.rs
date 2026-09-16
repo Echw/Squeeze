@@ -1,62 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum CompressionProfile {
-    MaximumQuality,
-    #[default]
-    Balanced,
-    MaximumCompression,
-    Lossless,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum OutputFormat {
-    #[default]
-    Preserve,
-    Webp,
-    Avif,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum SearchEffort {
-    #[default]
-    Auto,
-    Detailed,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum CompressionMethod {
-    /// Choose one safe strategy from the image analysis. This is the fast default.
-    #[default]
-    Auto,
-    /// Evaluate compatible PNG strategies and keep the smallest safe result.
-    Search,
-    /// Only recompress the existing PNG stream; decoded pixels never change.
-    Lossless,
-    /// Only try indexed-palette candidates under the selected quality threshold.
-    Palette,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum PaletteDithering {
-    #[default]
-    None,
-    FloydSteinberg,
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MetadataPolicy {
-    #[default]
-    StripPrivate,
-    PreserveAll,
-}
-
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceLimits {
@@ -75,34 +18,12 @@ impl Default for ResourceLimits {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+/// Squeeze deliberately exposes no compression knobs. The engine always keeps
+/// the input format and chooses one fixed, safe encoder configuration.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OptimizeOptions {
-    pub profile: CompressionProfile,
-    pub search_effort: SearchEffort,
-    pub method: CompressionMethod,
-    /// Used only with the explicit Palette method. `None` keeps the search
-    /// schedule; a value makes the requested variant deterministic.
-    pub palette_colors: Option<u16>,
-    pub palette_dithering: PaletteDithering,
-    pub output_format: OutputFormat,
-    pub metadata: MetadataPolicy,
     pub limits: ResourceLimits,
-}
-
-impl Default for OptimizeOptions {
-    fn default() -> Self {
-        Self {
-            profile: CompressionProfile::Balanced,
-            search_effort: SearchEffort::Auto,
-            method: CompressionMethod::Auto,
-            palette_colors: None,
-            palette_dithering: PaletteDithering::None,
-            output_format: OutputFormat::Preserve,
-            metadata: MetadataPolicy::StripPrivate,
-            limits: ResourceLimits::default(),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -117,8 +38,7 @@ pub enum ImageFormat {
 pub enum ProgressStage {
     Decoding,
     Analyzing,
-    Searching,
-    Measuring,
+    Compressing,
     Finalizing,
 }
 
@@ -126,31 +46,23 @@ pub enum ProgressStage {
 #[serde(rename_all = "camelCase")]
 pub struct ProgressEvent {
     pub stage: ProgressStage,
-    pub candidate: Option<u16>,
-    pub total: Option<u16>,
-    /// Human-readable description of the candidate currently being encoded or
-    /// measured. This is UI copy, not an engine control.
-    pub variant: Option<String>,
 }
 
 pub trait ProgressSink {
     fn report(&self, event: ProgressEvent);
 }
 
-/// Optional diagnostic events. Production callers use `NoObserver`, so the
-/// optimizer does not retain timing state or allocate telemetry data.
+/// Optional timing events for the benchmark command. Production callers do
+/// not retain telemetry or execute additional quality measurements.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub enum OptimizationOperation {
     Decode,
     Analysis,
+    JpegEncode,
     PaletteBuild,
-    Dithering,
     PngEncode,
-    CandidateDecode,
-    Ssimulacra2,
-    Butteraugli,
-    FinalRecompress,
+    LosslessRecompress,
     LosslessVerification,
 }
 
@@ -187,6 +99,8 @@ impl CancellationToken for NeverCancelled {
     }
 }
 
+/// Only the benchmark command populates these values. Daily compression does
+/// not calculate perceptual metrics in the browser.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualityMetrics {
@@ -223,10 +137,6 @@ pub struct SelectedStrategy {
     pub chroma_subsampling: Option<String>,
     pub progressive: Option<bool>,
     pub palette_colors: Option<u16>,
-    pub dithering: Option<String>,
-    /// The metric evaluated on the selected lossy candidate. `None` means a
-    /// lossless or pass-through result.
-    pub quality_guard: Option<String>,
     pub lossless: bool,
 }
 
@@ -241,12 +151,10 @@ pub struct OptimizationReport {
     pub optimized_size: usize,
     pub saved_bytes: usize,
     pub saved_percent: f32,
-    pub metrics: QualityMetrics,
     pub strategy: SelectedStrategy,
-    pub candidates_tested: u16,
     pub processing_time_ms: f64,
     pub already_optimized: bool,
-    pub profile_set_version: u16,
+    pub optimizer_version: u16,
     pub warnings: Vec<String>,
     pub analysis: ImageAnalysis,
 }
@@ -263,8 +171,6 @@ pub enum OptimizeError {
     Cancelled,
     #[error("unsupported format; only JPEG and PNG are accepted")]
     UnsupportedFormat,
-    #[error("requested output format is not built into this engine")]
-    UnsupportedOutputFormat,
     #[error("animated PNG is not supported")]
     AnimatedPng,
     #[error("input exceeds the {limit} byte limit")]
@@ -283,49 +189,4 @@ pub enum OptimizeError {
     InvalidColorProfile,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ProfileRules {
-    pub ssimulacra2: f64,
-    pub butteraugli: f64,
-    pub png_palette_ssimulacra2: f64,
-    pub png_palette_butteraugli: f64,
-    pub candidate_budget: u16,
-    pub start_quality: u8,
-}
-
-pub(crate) const PROFILE_SET_VERSION: u16 = 3;
-
-impl CompressionProfile {
-    pub(crate) fn rules(self, effort: SearchEffort) -> Option<ProfileRules> {
-        let detailed = matches!(effort, SearchEffort::Detailed);
-        match self {
-            Self::MaximumQuality => Some(ProfileRules {
-                ssimulacra2: 99.0,
-                butteraugli: 1.0,
-                png_palette_ssimulacra2: 99.0,
-                png_palette_butteraugli: 1.0,
-                candidate_budget: if detailed { 24 } else { 8 },
-                start_quality: 96,
-            }),
-            Self::Balanced => Some(ProfileRules {
-                ssimulacra2: 97.0,
-                butteraugli: 1.5,
-                png_palette_ssimulacra2: 97.0,
-                png_palette_butteraugli: 1.5,
-                candidate_budget: if detailed { 36 } else { 12 },
-                start_quality: 92,
-            }),
-            Self::MaximumCompression => Some(ProfileRules {
-                ssimulacra2: 93.0,
-                butteraugli: 2.0,
-                // Calibrated against real-world indexed PNG output from TinyPNG.
-                // JPEG keeps the stricter thresholds above.
-                png_palette_ssimulacra2: 77.0,
-                png_palette_butteraugli: 4.5,
-                candidate_budget: if detailed { 48 } else { 16 },
-                start_quality: 86,
-            }),
-            Self::Lossless => None,
-        }
-    }
-}
+pub(crate) const OPTIMIZER_VERSION: u16 = 4;

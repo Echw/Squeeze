@@ -16,20 +16,18 @@ Squeeze lokalnie analizuje JPEG i PNG, dobiera bezpieczną strategię kompresji,
 
 ## Positioning
 
-Silnik działa w przeglądarce i ocenia kandydatów za pomocą metryk percepcyjnych. Obrazy, ich nazwy i piksele nie opuszczają urządzenia.
+Silnik działa w przeglądarce i wykonuje jeden ustalony przebieg, dobrany po
+lekkiej analizie obrazu. Metryki percepcyjne służą tylko benchmarkom i testom.
+Obrazy, ich nazwy i piksele nie opuszczają urządzenia.
 
 ## Capabilities and Constraints
 
 - Wejście: JPEG i PNG, maksymalnie 24 MP i 100 MB na plik.
-- Wyjście domyślne zachowuje format; opcjonalna konwersja prowadzi do WebP.
-- Dla nowej instalacji domyślne są: Mocna kompresja, zachowanie formatu i
-  autostart. Migracja ustawień zachowuje każdą poprawną wartość wybraną wcześniej.
-- Rust/WASM pozostaje wspólnym silnikiem dla kompresji zachowującej format; WebP działa jako lokalny kodek w Workerze.
-- Szybka automatyka profilu Mocna kompresja może redukować kwalifikujący się
-  nieprzezroczysty PNG 8-bit do pojedynczej palety 256 kolorów bez ditheringu.
-  Pełne porównanie pozostaje ustawieniem eksperckim. W tym samym miejscu można
-  też ręcznie wybrać wariant paletowy: 32, 64, 96, 128, 192 albo 256 kolorów
-  oraz dithering Floyd–Steinberg, po czym przeliczyć i porównać wynik.
+- JPEG pozostaje JPEG, PNG pozostaje PNG; nie ma konwersji WebP ani opcji
+  eksperckich. Migracja usuwa wcześniejsze ustawienia, które mogłyby je przywrócić.
+- Rust/WASM pozostaje wspólnym silnikiem dla JPEG i PNG w jednym Workerze.
+- Automatyka redukuje kwalifikujący się nieprzezroczysty PNG 8-bit do jednej
+  palety 256 kolorów bez ditheringu; wynik większy od wejścia jest odrzucany.
 - PNG z alpha, 16-bit, osadzonym zarządzaniem kolorem lub EXIF korzysta z
   bezpiecznej ścieżki lossless, gdy zachowuje format.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
@@ -40,12 +38,13 @@ Nazwa Squeeze. Naturalny, rzeczowy język polski. Jasny interfejs z zielonym akc
 
 ## Evidence on Hand
 
-Repozytorium zawiera działający silnik JPEG/PNG, lokalny Worker, porównanie przed/po, kolejkę, ZIP i raporty diagnostyczne. Corpus obrazów użytkownika nie jest częścią repozytorium.
+Repozytorium zawiera działający silnik JPEG/PNG, lokalny Worker, porównanie
+przed/po, kolejkę i ZIP. Corpus obrazów użytkownika nie jest częścią repozytorium.
 
 ## Product Principles
 
 - Dodaj, skompresuj, porównaj i pobierz bez zbędnych kroków.
-- Domyślna automatyka ma być dobra; kontrola pozostaje dostępna.
+- Domyślna automatyka ma być dobra i nie wymaga ustawień.
 - Wynik i ograniczenia muszą być opisane uczciwie.
 - Prywatność jest właściwością architektury, nie obietnicą marketingową.
 - Testy przeglądarkowe Chromium/Firefox są TODO; nie deklarujemy ich jako

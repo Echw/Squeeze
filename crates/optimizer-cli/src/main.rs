@@ -8,11 +8,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
+use image::{ColorType, codecs::jpeg::JpegEncoder};
 use optimizer_core::{
-    CompressionMethod, CompressionProfile, NeverCancelled, NoProgress, OptimizationObserver,
-    OptimizationOperation, OptimizationReport, OptimizeOptions, QualityMetrics, SearchEffort,
-    measure_quality, optimize, optimize_with_observer,
+    NeverCancelled, NoProgress, OptimizationObserver, OptimizationOperation, OptimizationReport,
+    OptimizeOptions, QualityMetrics, measure_quality, optimize, optimize_with_observer,
 };
 use serde::Serialize;
 
@@ -33,12 +33,6 @@ enum Command {
         input: PathBuf,
         #[arg(short, long)]
         output: Option<PathBuf>,
-        #[arg(long, value_enum, default_value_t = ProfileArg::Balanced)]
-        profile: ProfileArg,
-        #[arg(long, value_enum, default_value_t = MethodArg::Auto)]
-        method: MethodArg,
-        #[arg(long, value_enum, default_value_t = EffortArg::Auto)]
-        search_effort: EffortArg,
         #[arg(long)]
         json: bool,
     },
@@ -48,70 +42,21 @@ enum Command {
         csv: bool,
         #[arg(long)]
         json: bool,
-        #[arg(long, value_enum, default_value_t = ProfileArg::Balanced)]
-        profile: ProfileArg,
-        #[arg(long, value_enum, default_value_t = MethodArg::Auto)]
-        method: MethodArg,
-        #[arg(long, value_enum, default_value_t = EffortArg::Auto)]
-        search_effort: EffortArg,
         #[arg(long, default_value_t = 5)]
         runs: u16,
         #[arg(long, default_value_t = 1)]
         warmup: u16,
     },
+    /// Measure a compressed image against its original. This is a benchmark
+    /// helper; production compression never runs perceptual metrics.
+    Metrics {
+        original: PathBuf,
+        candidate: PathBuf,
+        #[arg(long)]
+        json: bool,
+    },
     /// Create deterministic, permissively-generated images outside the repo.
     Fixtures { output: PathBuf },
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum ProfileArg {
-    MaximumQuality,
-    Balanced,
-    MaximumCompression,
-    Lossless,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum MethodArg {
-    Auto,
-    Search,
-    Lossless,
-    Palette,
-}
-impl From<MethodArg> for CompressionMethod {
-    fn from(value: MethodArg) -> Self {
-        match value {
-            MethodArg::Auto => Self::Auto,
-            MethodArg::Search => Self::Search,
-            MethodArg::Lossless => Self::Lossless,
-            MethodArg::Palette => Self::Palette,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum EffortArg {
-    Auto,
-    Detailed,
-}
-impl From<EffortArg> for SearchEffort {
-    fn from(value: EffortArg) -> Self {
-        match value {
-            EffortArg::Auto => Self::Auto,
-            EffortArg::Detailed => Self::Detailed,
-        }
-    }
-}
-
-impl From<ProfileArg> for CompressionProfile {
-    fn from(value: ProfileArg) -> Self {
-        match value {
-            ProfileArg::MaximumQuality => Self::MaximumQuality,
-            ProfileArg::Balanced => Self::Balanced,
-            ProfileArg::MaximumCompression => Self::MaximumCompression,
-            ProfileArg::Lossless => Self::Lossless,
-        }
-    }
 }
 
 fn main() -> Result<()> {
@@ -119,60 +64,51 @@ fn main() -> Result<()> {
         Command::Optimize {
             input,
             output,
-            profile,
-            method,
-            search_effort,
             json,
-        } => optimize_file(
-            &input,
-            output.as_deref(),
-            profile.into(),
-            method.into(),
-            search_effort.into(),
-            json,
-        ),
+        } => optimize_file(&input, output.as_deref(), json),
         Command::Benchmark {
             directory,
             csv,
             json,
-            profile,
-            method,
-            search_effort,
             runs,
             warmup,
-        } => benchmark(
-            &directory,
-            BenchmarkConfig {
-                profile: profile.into(),
-                method: method.into(),
-                search_effort: search_effort.into(),
-                runs,
-                warmup,
-            },
-            csv,
+        } => benchmark(&directory, BenchmarkConfig { runs, warmup }, csv, json),
+        Command::Metrics {
+            original,
+            candidate,
             json,
-        ),
+        } => measure_files(&original, &candidate, json),
         Command::Fixtures { output } => write_fixtures(&output),
     }
 }
 
-fn optimize_file(
-    input_path: &Path,
-    output_path: Option<&Path>,
-    profile: CompressionProfile,
-    method: CompressionMethod,
-    search_effort: SearchEffort,
-    json: bool,
-) -> Result<()> {
+fn measure_files(original_path: &Path, candidate_path: &Path, json: bool) -> Result<()> {
+    let original = fs::read(original_path)
+        .with_context(|| format!("cannot read {}", original_path.display()))?;
+    let candidate = fs::read(candidate_path)
+        .with_context(|| format!("cannot read {}", candidate_path.display()))?;
+    let metrics = measure_quality(&original, &candidate)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&metrics)?);
+    } else {
+        println!(
+            "SSIMULACRA2: {}\nButteraugli: {}",
+            optional_number(metrics.ssimulacra2),
+            optional_number(metrics.butteraugli)
+        );
+    }
+    Ok(())
+}
+
+fn optimize_file(input_path: &Path, output_path: Option<&Path>, json: bool) -> Result<()> {
     let input =
         fs::read(input_path).with_context(|| format!("cannot read {}", input_path.display()))?;
-    let options = OptimizeOptions {
-        profile,
-        method,
-        search_effort,
-        ..OptimizeOptions::default()
-    };
-    let result = optimize(&input, options, &NoProgress, &NeverCancelled)?;
+    let result = optimize(
+        &input,
+        OptimizeOptions::default(),
+        &NoProgress,
+        &NeverCancelled,
+    )?;
     let destination = output_path
         .map(Path::to_path_buf)
         .unwrap_or_else(|| output_name(input_path));
@@ -196,9 +132,6 @@ fn optimize_file(
 
 #[derive(Clone, Copy)]
 struct BenchmarkConfig {
-    profile: CompressionProfile,
-    method: CompressionMethod,
-    search_effort: SearchEffort,
     runs: u16,
     warmup: u16,
 }
@@ -213,32 +146,30 @@ fn benchmark(directory: &Path, config: BenchmarkConfig, csv: bool, json: bool) -
     let mut reports: Vec<(String, BenchmarkReport)> = Vec::new();
     for path in paths {
         let input = fs::read(&path)?;
-        let options = OptimizeOptions {
-            profile: config.profile,
-            method: config.method,
-            search_effort: config.search_effort,
-            ..OptimizeOptions::default()
-        };
-        match benchmark_one(&input, options, config.runs, config.warmup) {
+        match benchmark_one(
+            &input,
+            OptimizeOptions::default(),
+            config.runs,
+            config.warmup,
+        ) {
             Ok(result) => reports.push((path.display().to_string(), result)),
             Err(error) => eprintln!("{}: {error}", path.display()),
         }
     }
     if csv {
         println!(
-            "file,format,original_bytes,optimized_bytes,saved_percent,ssimulacra2,butteraugli,candidates,median_ms,p95_ms"
+            "file,format,original_bytes,optimized_bytes,saved_percent,ssimulacra2,butteraugli,median_ms,p95_ms"
         );
         for (path, report) in reports {
             println!(
-                "\"{}\",{:?},{},{},{:.4},{},{},{},{:.3},{:.3}",
+                "\"{}\",{:?},{},{},{:.4},{},{},{:.3},{:.3}",
                 path.replace('"', "\"\""),
                 report.report.format,
                 report.report.original_size,
                 report.report.optimized_size,
                 report.report.saved_percent,
-                optional_number(report.report.metrics.ssimulacra2),
-                optional_number(report.report.metrics.butteraugli),
-                report.report.candidates_tested,
+                optional_number(report.oracle_metrics.ssimulacra2),
+                optional_number(report.oracle_metrics.butteraugli),
                 report.median_ms,
                 report.p95_ms,
             );
@@ -361,6 +292,7 @@ fn write_fixtures(output: &Path) -> Result<()> {
         false,
     )?;
     write_png(&output.join("sparse-alpha.png"), 128, 96, true)?;
+    write_jpeg(&output.join("squeeze-photo-1600x1200.jpg"), 1600, 1200)?;
     println!(
         "Generated legal deterministic fixtures in {}",
         output.display()
@@ -402,6 +334,27 @@ fn write_png(path: &Path, width: u32, height: u32, sparse_alpha: bool) -> Result
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header()?.write_image_data(&pixels)?;
+    Ok(())
+}
+
+fn write_jpeg(path: &Path, width: u32, height: u32) -> Result<()> {
+    let mut pixels = Vec::with_capacity((width * height * 3) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let wave = ((x / 17).wrapping_mul(29) ^ (y / 23).wrapping_mul(47)) as u8;
+            let horizon = (y.saturating_mul(180) / height) as u8;
+            pixels.extend_from_slice(&[
+                30_u8.saturating_add(horizon / 2).saturating_add(wave / 10),
+                48_u8.saturating_add(horizon).saturating_add(wave / 9),
+                82_u8
+                    .saturating_add((255 - horizon) / 3)
+                    .saturating_add(wave / 11),
+            ]);
+        }
+    }
+    let file = fs::File::create(path)?;
+    let mut encoder = JpegEncoder::new_with_quality(file, 94);
+    encoder.encode(&pixels, width, height, ColorType::Rgb8.into())?;
     Ok(())
 }
 

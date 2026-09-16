@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f3f1eb" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' ws://localhost:*; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
-    <meta name="description" content="Lokalna kompresja i konwersja JPEG oraz PNG bez wysyłania plików." />
+    <meta name="description" content="Lokalna kompresja JPEG oraz PNG bez wysyłania plików." />
     <title>Squeeze — lokalna kompresja obrazów</title>
   </head>
   <body>
@@ -25,7 +25,7 @@
       <main id="compressor">
         <header class="intro">
           <h1>Zmniejsz obrazy.<br><span>Zachowaj jakość.</span></h1>
-          <p>Squeeze dobiera kompresję do obrazu, porównuje wyniki i działa w całości na Twoim urządzeniu.</p>
+          <p>Squeeze dobiera jeden bezpieczny przebieg do obrazu i działa w całości na Twoim urządzeniu.</p>
         </header>
 
         <section class="tool" aria-label="Kompresor obrazów">
@@ -35,25 +35,6 @@
             <div><h2>Dodaj obrazy</h2><p id="drop-hint">Przeciągnij tutaj albo <span>wybierz pliki</span></p></div>
             <p class="dropzone__limits">JPEG i PNG · do 100 MB · maks. 24 MP</p>
           </div>
-
-          <form class="settings" id="settings" aria-label="Ustawienia kompresji">
-            <label><span>Jakość</span><select id="profile"><option value="maximumQuality">Bardzo wysoka</option><option value="balanced">Zbalansowana</option><option value="maximumCompression" selected>Mocna kompresja</option></select></label>
-            <label><span>Format wyniku</span><select id="output-format"><option value="preserve" selected>Zachowaj format</option><option value="webp">WebP</option></select></label>
-            <label class="switch"><span><strong>Kompresuj od razu</strong><small>Po dodaniu plików</small></span><input id="auto-start" type="checkbox" checked /><i aria-hidden="true"></i></label>
-            <details class="advanced">
-              <summary>Ustawienia zaawansowane</summary>
-              <div class="advanced__content">
-                <label><span>Jak skompresować PNG</span><select id="method"><option value="auto" selected>Szybko i automatycznie</option><option value="search">Sprawdź kilka bezpiecznych wariantów</option><option value="lossless">Tylko bezstratnie</option><option value="palette">Wybiorę wariant samodzielnie</option></select></label>
-                <div class="palette-controls" id="palette-controls" hidden>
-                  <label><span>Kolory w wyniku</span><select id="palette-colors"><option value="256" selected>256 — najbliżej jakości oryginału</option><option value="192">192</option><option value="128">128</option><option value="96">96</option><option value="64">64</option><option value="32">32 — najmniejszy plik</option></select></label>
-                  <label><span>Wygładzanie przejść</span><select id="palette-dithering"><option value="none" selected>Bez wygładzania</option><option value="floydSteinberg">Dithering (Floyd–Steinberg)</option></select></label>
-                  <p>Przelicz obraz, a potem użyj „Porównaj”, aby ocenić wybrany wariant.</p>
-                </div>
-                <label><span>Zakres porównania</span><select id="effort"><option value="auto" selected>Standardowy</option><option value="detailed">Dokładniejszy</option></select></label>
-                <label class="checkbox"><input id="expert-mode" type="checkbox" /> Pokaż dane techniczne</label>
-              </div>
-            </details>
-          </form>
 
           <div class="notices" id="notices" aria-live="polite"></div>
 
@@ -71,7 +52,7 @@
         </section>
 
       </main>
-      <footer class="site-footer"><span>Squeeze v0.2</span><span>JPEG · PNG · WebP · lokalnie</span></footer>
+      <footer class="site-footer"><span>Squeeze v0.3</span><span>JPEG · PNG · lokalnie</span></footer>
     </div>
 
     <template id="notice-template"><div class="notice"><span></span><button type="button" aria-label="Zamknij komunikat"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div></template>
@@ -82,14 +63,12 @@
           <div class="job__title"><h3></h3><span class="job__change"></span></div>
           <div class="job__sizes"><span data-original></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-4-4 4 4-4 4"/></svg><strong data-output></strong></div>
           <div class="job__status"><span data-status-icon></span><span data-status-copy></span></div>
-          <progress max="1" hidden></progress>
           <p class="job__error" hidden></p>
           <details class="job__details" hidden><summary>Szczegóły</summary><div></div></details>
         </div>
         <div class="job__actions">
           <button class="button button--quiet" type="button" data-action="compare">Porównaj</button>
           <button class="button button--secondary" type="button" data-action="download">Pobierz</button>
-          <button class="icon-button" type="button" data-action="report" aria-label="Pobierz raport JSON"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h4M10 12h5m-5 4h5"/></svg></button>
           <button class="button button--quiet" type="button" data-action="retry">Spróbuj ponownie</button>
           <button class="button button--quiet" type="button" data-action="cancel">Anuluj</button>
           <button class="icon-button" type="button" data-action="remove" aria-label="Usuń obraz"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16m-10-3h4m-7 3 .7 13h8.6L17 7M10 11v5m4-5v5"/></svg></button>

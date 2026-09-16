@@ -1,7 +1,7 @@
 # Corpus regresyjny
 
 Pliki corpusu nie są commitowane, żeby repozytorium nie przejmowało praw do cudzych
-obrazów. Przed zatwierdzeniem `profileSetVersion = 1` uzupełnij lokalnie katalogi:
+obrazów. Przed porównaniem wersji uzupełnij lokalnie katalogi:
 
 ```text
 photos/ screenshots/ graphics/ text/ gradients/ noise/ alpha/
@@ -13,6 +13,10 @@ oczekiwanym formatem, wymiarami, orientacją i informacją o alpha/ICC. Wynik po
 `optimizer benchmark corpus --json` można zachować jako artefakt CI i porównać z
 zaakceptowanym baseline'em poza repozytorium.
 
+`public-corpus-2026-09-15.json` zapisuje źródła i licencje 24 plików użytych do
+lokalnego porównania. Same pobrane binaria pozostają w katalogu tymczasowym,
+poza Git.
+
 ## Fixture generowany w repozytorium
 
 Do testów i benchmarków bez obciążeń licencyjnych użyj deterministycznego
@@ -21,13 +25,11 @@ tymczasowego), więc żaden obraz binarny nie trafia do Git:
 
 ```sh
 cargo run -p optimizer-cli -- fixtures <temporary-directory>/squeeze-fixtures
-cargo run -p optimizer-cli -- benchmark <temporary-directory>/squeeze-fixtures --profile maximum-compression --method auto --search-effort auto --warmup 1 --runs 5 --json
+cargo run -p optimizer-cli -- benchmark <temporary-directory>/squeeze-fixtures --warmup 1 --runs 5 --json
 ```
 
 W PowerShell użyj na przykład `$env:TEMP\squeeze-fixtures`; w powłoce Unix
 użyj katalogu zwróconego przez `mktemp -d`.
 
-Raport zawiera medianę, p95 oraz średni czas faz rdzenia. Diagnostyczny Worker
-WASM przyjmuje identyczne opcje i może zwrócić czasy faz na żądanie. Testy
-przeglądarkowe w Chromium i Firefox są świadomie odłożone jako TODO, bez
-dodawania obecnie Playwrighta.
+Raport zawiera medianę, p95 oraz średni czas faz rdzenia. Metryki jakości są
+liczone tylko przez CLI podczas benchmarku, nigdy w codziennej ścieżce Workera.
