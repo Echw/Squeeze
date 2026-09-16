@@ -1,14 +1,22 @@
-use std::io::{Cursor, Read, Write};
+use std::{
+    collections::HashMap,
+    io::{Cursor, Read, Write},
+};
 
 use crc32fast::Hasher;
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use image::{GenericImageView, RgbImage, RgbaImage};
-use quantette::{ImageBuf, PaletteSize, Pipeline, QuantizeMethod};
+use quantette::{ImageBuf, PaletteSize, Pipeline, QuantizeMethod, dither::FloydSteinberg};
 
 use crate::{check_cancelled, types::*};
 
 const PALETTE_COLORS: u16 = 256;
 const MAX_PALETTE_MEAN_DELTA: f32 = 2.5;
+// Maps and dense interface captures can have far more distinct colours than
+// ordinary illustrations while still quantizing cleanly. The palette guard
+// below decides their quality; this cap only keeps the one-pass encoder
+// bounded on genuinely high-colour inputs.
+const MAX_PALETTE_ESTIMATED_COLORS: u32 = 250_000;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn optimize_png(
@@ -24,9 +32,51 @@ pub(crate) fn optimize_png(
 ) -> Result<OptimizationResult, OptimizeError> {
     let bit_depth = input.get(24).copied().unwrap_or(8);
     let sensitive_chunks = has_sensitive_png_chunks(input);
-    if bit_depth == 16 || analysis.has_alpha || sensitive_chunks || !is_palette_candidate(&analysis)
-    {
+    let srgb = source_srgb_intent(input);
+    if bit_depth == 16 || sensitive_chunks {
         let warnings = lossless_warnings(bit_depth, analysis.has_alpha, sensitive_chunks);
+        return optimize_lossless(
+            input,
+            width,
+            height,
+            analysis,
+            warnings,
+            progress,
+            cancellation,
+            options.limits,
+            observer,
+        );
+    }
+
+    if analysis.has_alpha {
+        if let Some(indexed) = exact_rgba_palette(&reference) {
+            return optimize_exact_alpha_palette(
+                input,
+                width,
+                height,
+                analysis,
+                indexed,
+                srgb,
+                progress,
+                cancellation,
+                observer,
+            );
+        }
+        return optimize_lossless(
+            input,
+            width,
+            height,
+            analysis,
+            lossless_warnings(bit_depth, true, false),
+            progress,
+            cancellation,
+            options.limits,
+            observer,
+        );
+    }
+
+    if !is_palette_candidate(&analysis) {
+        let warnings = lossless_warnings(bit_depth, false, false);
         return optimize_lossless(
             input,
             width,
@@ -56,6 +106,9 @@ pub(crate) fn optimize_png(
     observer.begin(OptimizationOperation::PaletteBuild);
     let indexed = Pipeline::new()
         .palette_size(palette_size)
+        // Quantette enables Floyd-Steinberg by default. The basic path needs
+        // one fast, deterministic palette pass without texture-like noise.
+        .ditherer(None::<FloydSteinberg>)
         .quantize_method(QuantizeMethod::kmeans())
         .input_image(quantette_image.as_ref())
         .output_srgb8_indexed_image();
@@ -82,7 +135,7 @@ pub(crate) fn optimize_png(
     }
 
     observer.begin(OptimizationOperation::PngEncode);
-    let output = encode_indexed_png(width, height, indexed.palette(), indexed.indices())?;
+    let output = encode_indexed_png(width, height, indexed.palette(), indexed.indices(), srgb)?;
     observer.end(OptimizationOperation::PngEncode);
     progress.report(ProgressEvent {
         stage: ProgressStage::Finalizing,
@@ -131,7 +184,100 @@ pub(crate) fn optimize_png(
 fn is_palette_candidate(analysis: &ImageAnalysis) -> bool {
     !matches!(analysis.kind, ContentKind::Photo)
         && analysis.noise < 0.08
-        && analysis.estimated_colors <= 65_536
+        && analysis.estimated_colors <= MAX_PALETTE_ESTIMATED_COLORS
+}
+
+struct ExactRgbaPalette {
+    colors: Vec<[u8; 4]>,
+    indices: Vec<u8>,
+}
+
+/// Finds a palette that is bit-for-bit lossless after PNG decoding. This is
+/// intentionally limited to 256 distinct RGBA tuples, which is the PNG
+/// indexed-colour limit. Complex alpha stays on the conservative lossless
+/// path instead of approximating semi-transparent edges.
+fn exact_rgba_palette(reference: &RgbaImage) -> Option<ExactRgbaPalette> {
+    let mut lookup = HashMap::<[u8; 4], u8>::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::with_capacity(reference.as_raw().len() / 4);
+
+    for pixel in reference.pixels() {
+        let color = pixel.0;
+        let index = if let Some(&index) = lookup.get(&color) {
+            index
+        } else {
+            let index = u8::try_from(colors.len()).ok()?;
+            colors.push(color);
+            lookup.insert(color, index);
+            index
+        };
+        indices.push(index);
+    }
+
+    Some(ExactRgbaPalette { colors, indices })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optimize_exact_alpha_palette(
+    input: &[u8],
+    width: u32,
+    height: u32,
+    analysis: ImageAnalysis,
+    indexed: ExactRgbaPalette,
+    srgb: Option<png::SrgbRenderingIntent>,
+    progress: &dyn ProgressSink,
+    cancellation: &dyn CancellationToken,
+    observer: &dyn OptimizationObserver,
+) -> Result<OptimizationResult, OptimizeError> {
+    check_cancelled(cancellation)?;
+    progress.report(ProgressEvent {
+        stage: ProgressStage::Compressing,
+    });
+    observer.begin(OptimizationOperation::PngEncode);
+    let output = encode_indexed_rgba_png(width, height, &indexed.colors, &indexed.indices, srgb)?;
+    observer.end(OptimizationOperation::PngEncode);
+    progress.report(ProgressEvent {
+        stage: ProgressStage::Finalizing,
+    });
+
+    if output.len() >= input.len() {
+        return Ok(passthrough(
+            input,
+            width,
+            height,
+            analysis,
+            vec!["Brak oszczędności w tym przebiegu.".into()],
+        ));
+    }
+
+    let optimized_size = output.len();
+    let saved_bytes = input.len() - optimized_size;
+    Ok(OptimizationResult {
+        output,
+        report: OptimizationReport {
+            format: ImageFormat::Png,
+            output_format: ImageFormat::Png,
+            width,
+            height,
+            original_size: input.len(),
+            optimized_size,
+            saved_bytes,
+            saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
+            strategy: SelectedStrategy {
+                encoder: "exact RGBA indexed PNG".into(),
+                quality: None,
+                chroma_subsampling: None,
+                progressive: None,
+                palette_colors: Some(indexed.colors.len() as u16),
+                lossless: true,
+            },
+            processing_time_ms: 0.0,
+            already_optimized: false,
+            optimizer_version: OPTIMIZER_VERSION,
+            warnings: vec!["Przezroczystość i kolory zachowano dokładnie w palecie PNG.".into()],
+            analysis,
+        },
+    })
 }
 
 fn lossless_warnings(bit_depth: u8, has_alpha: bool, sensitive_chunks: bool) -> Vec<String> {
@@ -338,6 +484,7 @@ fn encode_indexed_png(
     height: u32,
     palette: &[quantette::deps::palette::Srgb<u8>],
     indices: &[u8],
+    srgb: Option<png::SrgbRenderingIntent>,
 ) -> Result<Vec<u8>, OptimizeError> {
     let (palette, indices) = sort_palette_by_luma(palette, indices);
     let mut output = Vec::new();
@@ -345,6 +492,9 @@ fn encode_indexed_png(
         let mut encoder = png::Encoder::new(Cursor::new(&mut output), width, height);
         encoder.set_color(png::ColorType::Indexed);
         encoder.set_depth(png::BitDepth::Eight);
+        if let Some(intent) = srgb {
+            encoder.set_source_srgb(intent);
+        }
         let bytes = palette
             .iter()
             .flat_map(|color| [color.red, color.green, color.blue])
@@ -357,6 +507,97 @@ fn encode_indexed_png(
             .map_err(|error| OptimizeError::Encode(error.to_string()))?;
     }
     Ok(output)
+}
+
+fn encode_indexed_rgba_png(
+    width: u32,
+    height: u32,
+    palette: &[[u8; 4]],
+    indices: &[u8],
+    srgb: Option<png::SrgbRenderingIntent>,
+) -> Result<Vec<u8>, OptimizeError> {
+    let (palette, indices) = sort_rgba_palette_by_luma(palette, indices);
+    let depth = indexed_bit_depth(palette.len());
+    let packed_indices = pack_indices(&indices, depth, width as usize, height as usize);
+    let mut output = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(Cursor::new(&mut output), width, height);
+        encoder.set_color(png::ColorType::Indexed);
+        encoder.set_depth(depth);
+        if let Some(intent) = srgb {
+            encoder.set_source_srgb(intent);
+        }
+        encoder.set_palette(
+            palette
+                .iter()
+                .flat_map(|color| color[..3].iter().copied())
+                .collect::<Vec<_>>(),
+        );
+        if let Some(last_transparent) = palette.iter().rposition(|color| color[3] != 255) {
+            encoder.set_trns(
+                palette[..=last_transparent]
+                    .iter()
+                    .map(|color| color[3])
+                    .collect::<Vec<_>>(),
+            );
+        }
+        encoder
+            .write_header()
+            .map_err(|error| OptimizeError::Encode(error.to_string()))?
+            .write_image_data(&packed_indices)
+            .map_err(|error| OptimizeError::Encode(error.to_string()))?;
+    }
+    Ok(output)
+}
+
+fn sort_rgba_palette_by_luma(palette: &[[u8; 4]], indices: &[u8]) -> (Vec<[u8; 4]>, Vec<u8>) {
+    let mut order = (0..palette.len()).collect::<Vec<_>>();
+    // Keep entries with alpha before opaque entries. This shortens tRNS while
+    // luma ordering makes neighboring palette indexes more compressible.
+    order.sort_unstable_by_key(|&index| {
+        let color = palette[index];
+        (
+            u8::from(color[3] == 255),
+            std::cmp::Reverse(
+                u32::from(color[0]) * 299 + u32::from(color[1]) * 587 + u32::from(color[2]) * 114,
+            ),
+        )
+    });
+    let mut remap = [0_u8; 256];
+    for (new, &old) in order.iter().enumerate() {
+        remap[old] = new as u8;
+    }
+    let sorted_palette = order.into_iter().map(|index| palette[index]).collect();
+    let sorted_indices = indices.iter().map(|&index| remap[index as usize]).collect();
+    (sorted_palette, sorted_indices)
+}
+
+fn indexed_bit_depth(palette_size: usize) -> png::BitDepth {
+    match palette_size {
+        0..=2 => png::BitDepth::One,
+        3..=4 => png::BitDepth::Two,
+        5..=16 => png::BitDepth::Four,
+        _ => png::BitDepth::Eight,
+    }
+}
+
+fn pack_indices(indices: &[u8], depth: png::BitDepth, width: usize, height: usize) -> Vec<u8> {
+    let bits = match depth {
+        png::BitDepth::One => 1,
+        png::BitDepth::Two => 2,
+        png::BitDepth::Four => 4,
+        png::BitDepth::Eight => return indices.to_vec(),
+        _ => unreachable!("indexed PNG only uses 1, 2, 4, or 8 bits"),
+    };
+    let row_bytes = (width * bits).div_ceil(8);
+    let mut packed = vec![0_u8; row_bytes * height];
+    for (row, source) in indices.chunks_exact(width).enumerate() {
+        for (column, index) in source.iter().enumerate() {
+            let bit = column * bits;
+            packed[row * row_bytes + bit / 8] |= *index << (8 - bits - (bit % 8));
+        }
+    }
+    packed
 }
 
 fn palette_mean_delta(
@@ -397,6 +638,27 @@ fn sort_palette_by_luma(
     (sorted_palette, sorted_indices)
 }
 
+fn source_srgb_intent(input: &[u8]) -> Option<png::SrgbRenderingIntent> {
+    let mut cursor = 8_usize;
+    while cursor + 12 <= input.len() {
+        let (chunk_end, kind, data) = png_chunk(input, cursor).ok()?;
+        if kind == b"sRGB" {
+            return match data {
+                [0] => Some(png::SrgbRenderingIntent::Perceptual),
+                [1] => Some(png::SrgbRenderingIntent::RelativeColorimetric),
+                [2] => Some(png::SrgbRenderingIntent::Saturation),
+                [3] => Some(png::SrgbRenderingIntent::AbsoluteColorimetric),
+                _ => None,
+            };
+        }
+        if kind == b"IEND" {
+            break;
+        }
+        cursor = chunk_end;
+    }
+    None
+}
+
 fn has_sensitive_png_chunks(input: &[u8]) -> bool {
     let mut cursor = 8_usize;
     while cursor + 12 <= input.len() {
@@ -410,10 +672,7 @@ fn has_sensitive_png_chunks(input: &[u8]) -> bool {
             break;
         }
         let kind = &input[cursor + 4..cursor + 8];
-        if matches!(
-            kind,
-            b"iCCP" | b"gAMA" | b"cHRM" | b"sRGB" | b"cICP" | b"eXIf"
-        ) {
+        if matches!(kind, b"iCCP" | b"gAMA" | b"cHRM" | b"cICP" | b"eXIf") {
             return true;
         }
         if kind == b"IEND" {
@@ -511,6 +770,24 @@ mod tests {
     }
 
     #[test]
+    fn automatic_palette_allows_a_flat_high_colour_map() {
+        let map = ImageAnalysis {
+            kind: ContentKind::Mixed,
+            entropy: 6.69,
+            estimated_colors: 184_120,
+            edge_density: 0.02,
+            noise: 0.066,
+            flat_area_ratio: 0.71,
+            has_alpha: false,
+        };
+        assert!(is_palette_candidate(&map));
+        assert!(!is_palette_candidate(&ImageAnalysis {
+            estimated_colors: MAX_PALETTE_ESTIMATED_COLORS + 1,
+            ..map
+        }));
+    }
+
+    #[test]
     fn transparent_png_uses_lossless_path_and_keeps_pixels() {
         let reference = RgbaImage::from_fn(64, 64, |x, y| {
             image::Rgba([x as u8, y as u8, 128, if x == y { 100 } else { 255 }])
@@ -530,6 +807,71 @@ mod tests {
         .unwrap();
         assert!(result.report.strategy.lossless);
         assert_eq!(decode_png(&result.output).unwrap(), reference);
+    }
+
+    #[test]
+    fn exact_rgba_palette_reduces_simple_transparent_art_without_pixel_changes() {
+        let reference = RgbaImage::from_fn(128, 96, |x, y| {
+            if x < 32 {
+                image::Rgba([0, 0, 0, 0])
+            } else if (x + y) % 3 == 0 {
+                image::Rgba([255, 196, 0, 128])
+            } else {
+                image::Rgba([24, 90, 180, 255])
+            }
+        });
+        let input = encode_rgba_fast(&reference);
+        let result = optimize_png(
+            &input,
+            reference.clone(),
+            reference.width(),
+            reference.height(),
+            crate::analysis::analyze(&reference),
+            OptimizeOptions::default(),
+            &NoProgress,
+            &NeverCancelled,
+            &NoObserver,
+        )
+        .unwrap();
+
+        assert_eq!(result.report.strategy.encoder, "exact RGBA indexed PNG");
+        assert!(result.report.strategy.lossless);
+        assert_eq!(result.report.strategy.palette_colors, Some(3));
+        assert!(result.output.len() < input.len());
+        assert_eq!(decode_png(&result.output).unwrap(), reference);
+    }
+
+    #[test]
+    fn palette_keeps_standard_srgb_intent() {
+        let reference = RgbaImage::from_fn(128, 96, |x, y| {
+            let shade = ((x / 16 + y / 16) % 3) as u8 * 80;
+            image::Rgba([
+                shade,
+                shade.saturating_add(20),
+                255_u8.saturating_sub(shade),
+                255,
+            ])
+        });
+        let input = with_srgb(encode_rgba_fast(&reference), 2);
+        let analysis = crate::analysis::analyze(&reference);
+        let result = optimize_png(
+            &input,
+            reference,
+            128,
+            96,
+            analysis,
+            OptimizeOptions::default(),
+            &NoProgress,
+            &NeverCancelled,
+            &NoObserver,
+        )
+        .unwrap();
+
+        assert!(result.output.len() < input.len());
+        assert_eq!(
+            source_srgb_intent(&result.output),
+            Some(png::SrgbRenderingIntent::Saturation)
+        );
     }
 
     #[test]
@@ -577,6 +919,14 @@ mod tests {
             .write_image_data(reference.as_raw())
             .unwrap();
         input
+    }
+
+    fn with_srgb(input: Vec<u8>, intent: u8) -> Vec<u8> {
+        let ihdr_end = 8 + 12 + 13;
+        let mut output = input[..ihdr_end].to_vec();
+        append_png_chunk(&mut output, b"sRGB", &[intent]);
+        output.extend_from_slice(&input[ihdr_end..]);
+        output
     }
 
     fn decode_png(bytes: &[u8]) -> Result<RgbaImage, OptimizeError> {

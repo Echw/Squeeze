@@ -63,6 +63,4 @@ export interface CompressionJob {
   error?: string;
   errorCode?: string;
   recoverable?: boolean;
-  /** True while a completed result remains downloadable during a new attempt. */
-  isReprocessing?: boolean;
 }

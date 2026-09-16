@@ -99,7 +99,7 @@ class AppController {
     if (!job) return;
     if (action === "cancel") this.#queue.cancel(id);
     else if (action === "remove") this.#queue.remove(id);
-    else if (action === "retry") job.status === "complete" ? this.#queue.rerun(id) : this.#queue.retry(id);
+    else if (action === "retry") this.#queue.retry(id);
     else if (action === "download") downloadJob(job);
     else if (action === "compare") openComparison(job, document.activeElement as HTMLElement);
   }

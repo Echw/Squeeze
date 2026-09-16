@@ -40,22 +40,6 @@ describe("CompressionQueue", () => {
     queue.dispose();
   });
 
-  it("keeps the previous result downloadable while it recompresses", async () => {
-    const worker = new FakeWorker();
-    const queue = new CompressionQueue({ workerFactory: () => worker as unknown as Worker });
-    announceReady(worker);
-    let jobs: readonly CompressionJob[] = [];
-    queue.subscribe((next) => { jobs = next; });
-    queue.add([imageFile()]);
-    await tick();
-    const job = jobs[0]!;
-    worker.emit({ version: WORKER_API_VERSION, type: "complete", jobId: job.id, attempt: job.attempt, result: report(), buffer: new ArrayBuffer(2) });
-    queue.rerun(job.id);
-    expect(jobs[0]).toMatchObject({ id: job.id, status: "processing", isReprocessing: true });
-    expect(jobs[0]!.output).toBeDefined();
-    queue.dispose();
-  });
-
   it("recovers a crashed worker only after a retry", async () => {
     const workers: FakeWorker[] = [];
     const queue = new CompressionQueue({ workerFactory: () => {

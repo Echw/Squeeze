@@ -3,6 +3,8 @@
 import type { OptimizationReport, ProgressStage, WorkerRequest, WorkerResponse } from "../types";
 import { WORKER_API_VERSION } from "../types";
 import { isJpeg, optimizeJpegWithJpegli } from "./jpegli";
+import initOxiPng, { optimise as optimiseOxiPng } from "@jsquash/oxipng/codec/pkg/squoosh_oxipng.js";
+import oxiPngWasmUrl from "@jsquash/oxipng/codec/pkg/squoosh_oxipng_bg.wasm?url";
 
 interface WasmResult { report_json: string; take_bytes(): Uint8Array }
 interface OptimizerWasm {
@@ -18,8 +20,10 @@ const OPTIONS = JSON.stringify({
     maxWorkingBytes: 768 * 1024 * 1024,
   },
 });
+const MAX_LOSSLESS_ALPHA_FINALIZER_PIXELS = 1_000_000;
 
 let modulePromise: Promise<OptimizerWasm> | undefined;
+let pngFinalizerPromise: Promise<unknown> | undefined;
 let activeJobId: string | undefined;
 let activeAttempt: number | undefined;
 
@@ -61,9 +65,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
     const wasm = await loadWasm();
     const result = wasm.optimize_image(new Uint8Array(request.buffer), OPTIONS, progress);
-    const output = result.take_bytes();
-    const buffer = output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer;
-    complete(request.jobId, request.attempt, JSON.parse(result.report_json) as OptimizationReport, buffer);
+    const finalized = await finalizePng(result.take_bytes(), JSON.parse(result.report_json) as OptimizationReport);
+    const buffer = finalized.output.buffer.slice(finalized.output.byteOffset, finalized.output.byteOffset + finalized.output.byteLength) as ArrayBuffer;
+    complete(request.jobId, request.attempt, finalized.report, buffer);
   } catch (error) {
     const parsed = parseError(error);
     postError(request.jobId, request.attempt, parsed.code, parsed.message, parsed.recoverable);
@@ -91,6 +95,45 @@ async function loadWasm(): Promise<OptimizerWasm> {
     return wasm;
   })();
   return modulePromise;
+}
+
+async function finalizePng(output: Uint8Array, report: OptimizationReport): Promise<{ output: Uint8Array; report: OptimizationReport }> {
+  // OxiPNG is lossless. It always follows an already-selected indexed PNG,
+  // and also handles small transparent graphics that safely stay RGBA because
+  // they have more than 256 exact colors. This is one fixed finalization step,
+  // never a second quality candidate.
+  if (!shouldFinalizePng(report)) return { output, report };
+  try {
+    const startedAt = performance.now();
+    // The package facade enables its threaded build in a Worker. That build
+    // starts nested Workers and cannot resolve Vite's emitted assets here, so
+    // initialise its single-threaded codec explicitly. Compression work still
+    // stays off the UI thread and uses the same fixed, lossless OxiPNG level.
+    await (pngFinalizerPromise ??= initOxiPng(oxiPngWasmUrl));
+    const finalized = optimiseOxiPng(output, 2, false, false);
+    if (finalized.byteLength >= output.byteLength) return { output, report };
+    report.optimizedSize = finalized.byteLength;
+    report.savedBytes = report.originalSize - finalized.byteLength;
+    report.savedPercent = report.savedBytes / report.originalSize * 100;
+    report.processingTimeMs += performance.now() - startedAt;
+    report.strategy.encoder = report.strategy.encoder === "already-optimized" ? "OxiPNG" : `${report.strategy.encoder} + OxiPNG`;
+    report.alreadyOptimized = false;
+    report.warnings = report.warnings.filter((warning) => warning !== "Brak oszczędności w tym przebiegu.");
+    return { output: finalized, report };
+  } catch {
+    // The primary Rust/WASM result is complete and valid without this optional
+    // lossless finalizer, so a loading failure never turns into a user error.
+    return { output, report };
+  }
+}
+
+function shouldFinalizePng(report: OptimizationReport): boolean {
+  if (report.format !== "png") return false;
+  if (report.strategy.paletteColors !== null) return true;
+  const pixels = report.width * report.height;
+  return report.analysis.hasAlpha
+    && report.analysis.kind === "graphic"
+    && pixels <= MAX_LOSSLESS_ALPHA_FINALIZER_PIXELS;
 }
 
 function complete(jobId: string, attempt: number, result: OptimizationReport, buffer: ArrayBuffer): void {

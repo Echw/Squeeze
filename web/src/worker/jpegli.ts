@@ -109,15 +109,12 @@ export function selectJpegliQuality(analysis: OptimizationReport["analysis"]): n
   const { edgeDensity, flatAreaRatio, noise } = analysis;
 
   // Sparse, almost-flat photographs show banding first, so preserve more data.
-  if (flatAreaRatio >= 0.9 && noise < 0.02) return 85;
+  if (flatAreaRatio >= 0.9 && noise < 0.02) return 83;
   // Fine, low-noise detail benefits from a small quality lift.
   if (edgeDensity >= 0.045 && noise < 0.32) return 74;
   // Smooth areas intersected by distinct edges include buildings and text.
   if (flatAreaRatio >= 0.62 && edgeDensity >= 0.02 && noise < 0.12) return 73;
-  // Large smooth, low-edge areas need a modest lift to avoid contouring.
-  if (flatAreaRatio >= 0.55 && edgeDensity < 0.01 && noise < 0.18) return 72;
-
-  return 70;
+  return 68;
 }
 
 async function loadJpegli(): Promise<JpegliInstance> {

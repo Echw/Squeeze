@@ -44,13 +44,13 @@ export class JobView {
     this.#original.textContent = formatBytes(job.file.size);
     this.#output.textContent = job.report ? formatBytes(job.report.optimizedSize) : "—";
     const percent = job.report?.savedPercent;
-    this.#change.hidden = percent === undefined || job.isReprocessing === true;
+    this.#change.hidden = percent === undefined;
     this.#change.textContent = percent === undefined ? "" : percent > 0 ? `−${percent.toFixed(1)}%` : "bez zmiany";
     this.#statusIcon.className = statusIconClass(job);
     this.#statusCopy.textContent = statusMessage(job);
     this.#error.hidden = !job.error;
     this.#error.textContent = job.error ?? "";
-    this.element.querySelector<HTMLButtonElement>('[data-action="retry"]')!.textContent = job.status === "complete" ? "Przelicz ponownie" : "Spróbuj ponownie";
+    this.element.querySelector<HTMLButtonElement>('[data-action="retry"]')!.textContent = "Spróbuj ponownie";
     this.updateWarnings(job);
     for (const button of this.element.querySelectorAll<HTMLButtonElement>("button[data-action]")) button.hidden = !visibleAction(button.dataset.action as JobAction, job);
   }
@@ -68,13 +68,13 @@ export class JobView {
 function visibleAction(action: JobAction, job: CompressionJob): boolean {
   if (action === "remove") return job.status !== "processing";
   if (action === "cancel") return job.status === "processing";
-  if (action === "retry") return (job.status === "error" && job.recoverable !== false) || job.status === "cancelled" || job.status === "complete";
+  if (action === "retry") return (job.status === "error" && job.recoverable !== false) || job.status === "cancelled";
   return Boolean(job.output && job.report);
 }
 
 function statusMessage(job: CompressionJob): string {
-  if (job.status === "queued") return job.isReprocessing ? "Czeka na ponowne przeliczenie" : "Czeka w kolejce";
-  if (job.status === "processing") return job.isReprocessing ? "Kompresuję ponownie" : stageName(job.stage);
+  if (job.status === "queued") return "Czeka w kolejce";
+  if (job.status === "processing") return stageName(job.stage);
   if (job.status === "error") return job.output ? "Nowa próba nie powiodła się — poprzedni wynik jest dostępny" : "Nie udało się skompresować";
   if (job.status === "cancelled") return job.output ? "Przerwano — poprzedni wynik jest dostępny" : "Anulowano";
   if (job.report?.alreadyOptimized || job.report?.savedPercent === 0) return "Gotowe · Brak oszczędności w tym przebiegu";

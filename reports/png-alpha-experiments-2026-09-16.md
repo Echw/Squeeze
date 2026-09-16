@@ -12,6 +12,37 @@ lokalnie pobrano wynik TinyPNG, nie ma badanego pipeline'u, który jednocześnie
 Da się uzyskać mniejszy plik. Cena to zmiana częściowo przezroczystych pikseli
 i gorszy wynik wizualny na jasnym tle. To nie spełnia reguły dla trybu jakości.
 
+## Bezpieczne rozszerzenie wdrożone po benchmarku
+
+Wyniki poniżej dotyczą trudnych obrazów z częściową przezroczystością. Nie
+oznaczają, że każdy PNG z alpha musi pozostawać bez zmian. Do domyślnej ścieżki
+dodano dwa deterministyczne etapy, które nie aproksymują pikseli:
+
+1. Obraz z najwyżej 256 różnymi wartościami **RGBA** jest zapisywany jako
+   indeksowany PNG `PLTE` + `tRNS`, z głębią 1/2/4/8 bitów. RGB i alpha po
+   dekodowaniu są identyczne z wejściem.
+2. Każdy wynik indeksowany przechodzi jedno bezstratne domknięcie OxiPNG WASM,
+   poziom 2, z `optimiseAlpha: false`. To nie tworzy alternatyw jakościowych i
+   nie jest uruchamiane dla złożonych PNG z alpha.
+
+Sprawdzone w produkcyjnym Workerze Chromium:
+
+| Plik | Wejście | Po zapisie indeksowanym | Wynik OxiPNG | Kontrola |
+| --- | ---: | ---: | ---: | --- |
+| `emoji-chart.png` z częściową alpha | 3 158 B | 2 249 B | **1 906 B** | RGBA piksel po pikselu identyczne z oryginałem. |
+| `screenshot.png` ze standardowym `sRGB` | 152 339 B | 56 578 B | **43 048 B** | Rozmiar w UI: 42,0 KB, −71,7%; `sRGB` pozostaje w PNG. |
+| Mapa przekazana do testu | 1 733 890 B | 598 258 B | **537 948 B** | UI: 525,3 KB, −69,0%; piksele przed i po OxiPNG identyczne. |
+
+OxiPNG obejmuje też małe, do 1 MP, grafiki RGBA z większą liczbą niż 256
+unikalnych pikseli. Przykładowy `emoji-camera.png` spadł w Workerze z 16 714 B
+do **13 992 B** (−16,3%), z identycznymi pikselami RGBA. Reguła nie obejmuje
+`transparency.png`: ten mieszany, półprzezroczysty obraz nie zyskał bajtów w
+OxiPNG, więc nie ponosi jego kosztu.
+
+Dla mapy TinyPNG dał 626 585 B, więc aktualny wynik Squeeze jest o 88 637 B
+(14,1%) mniejszy. To jest wynik dla tego konkretnego obrazu, nie deklaracja
+ogólnej przewagi nad TinyPNG.
+
 ## Metoda
 
 - Wejścia i licencje: [`public-corpus-2026-09-15.json`](../corpus/public-corpus-2026-09-15.json).

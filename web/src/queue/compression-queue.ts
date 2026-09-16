@@ -53,21 +53,6 @@ export class CompressionQueue {
 
   pause(): void { if (!this.#paused) { this.#paused = true; this.#emit(); } }
 
-  rerun(id: string): void {
-    const job = this.#find(id);
-    if (!job) return;
-    this.#recoverWorker();
-    job.status = "queued";
-    job.error = undefined;
-    job.errorCode = undefined;
-    job.recoverable = undefined;
-    job.stage = undefined;
-    job.isReprocessing = Boolean(job.output);
-    job.attempt += 1;
-    this.#emit();
-    void this.#pump();
-  }
-
   clearCompleted(): void {
     for (const job of this.#jobs) if (["complete", "cancelled", "error"].includes(job.status)) this.#revokePreview(job.id);
     this.#jobs = this.#jobs.filter((job) => !["complete", "cancelled", "error"].includes(job.status));
@@ -107,7 +92,6 @@ export class CompressionQueue {
     job.error = undefined;
     job.errorCode = undefined;
     job.recoverable = undefined;
-    job.isReprocessing = Boolean(job.output);
     job.attempt += 1;
     this.#emit();
     void this.#pump();
@@ -186,7 +170,6 @@ export class CompressionQueue {
       job.status = "complete";
       job.report = message.result;
       job.output = new Uint8Array(message.buffer);
-      job.isReprocessing = false;
     } else if (message.type === "error") {
       job.status = "error";
       job.error = message.message;
