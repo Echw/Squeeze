@@ -1,6 +1,6 @@
-// Bump whenever an immutable WASM asset changes. The worker imports it by a
-// stable URL, so serving an older cache would silently keep old parameters.
-const CACHE = "squeeze-static-v7";
+// Bump whenever a cached application asset changes. The worker imports its
+// encoder by a stable URL, so an older cache would silently keep old settings.
+const CACHE = "squeeze-static-v8";
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {

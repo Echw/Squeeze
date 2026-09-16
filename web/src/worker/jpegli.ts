@@ -51,7 +51,7 @@ export async function optimizeJpegWithJpegli(
 
     reportProgress("analyzing");
     const analysis = analyzeRgba(rgba, width, height);
-    const quality = selectJpegliQuality(analysis.flatAreaRatio, analysis.noise);
+    const quality = selectJpegliQuality(analysis);
 
     reportProgress("compressing");
     const candidate = injectIccSegments(encode(await loadJpegli(), rgba, width, height, quality), iccSegments);
@@ -86,7 +86,7 @@ export async function optimizeJpegWithJpegli(
         },
         processingTimeMs: performance.now() - started,
         alreadyOptimized: false,
-        optimizerVersion: 1,
+        optimizerVersion: 2,
         warnings: [],
         analysis,
       },
@@ -100,8 +100,24 @@ export function isJpeg(input: Uint8Array): boolean {
   return input.byteLength >= 3 && input[0] === 0xff && input[1] === 0xd8 && input[2] === 0xff;
 }
 
-export function selectJpegliQuality(flatAreaRatio: number, noise: number): number {
-  return flatAreaRatio >= 0.9 && noise < 0.02 ? 85 : 72;
+/**
+ * One measured quality choice. All candidates keep 4:2:0: across the public
+ * photo corpus, 4:2:2 and 4:4:4 increased bytes and did not improve the
+ * perceptual result enough to justify their cost.
+ */
+export function selectJpegliQuality(analysis: OptimizationReport["analysis"]): number {
+  const { edgeDensity, flatAreaRatio, noise } = analysis;
+
+  // Sparse, almost-flat photographs show banding first, so preserve more data.
+  if (flatAreaRatio >= 0.9 && noise < 0.02) return 85;
+  // Fine, low-noise detail benefits from a small quality lift.
+  if (edgeDensity >= 0.045 && noise < 0.32) return 74;
+  // Smooth areas intersected by distinct edges include buildings and text.
+  if (flatAreaRatio >= 0.62 && edgeDensity >= 0.02 && noise < 0.12) return 73;
+  // Large smooth, low-edge areas need a modest lift to avoid contouring.
+  if (flatAreaRatio >= 0.55 && edgeDensity < 0.01 && noise < 0.18) return 72;
+
+  return 70;
 }
 
 async function loadJpegli(): Promise<JpegliInstance> {
@@ -232,7 +248,7 @@ function passthroughReport(size: number, width: number, height: number, analysis
     format: "jpeg", outputFormat: "jpeg", width, height, originalSize: size, optimizedSize: size,
     savedBytes: 0, savedPercent: 0,
     strategy: { encoder: "already-optimized", quality: null, chromaSubsampling: null, progressive: null, paletteColors: null, lossless: true },
-    processingTimeMs: performance.now() - started, alreadyOptimized: true, optimizerVersion: 1,
+    processingTimeMs: performance.now() - started, alreadyOptimized: true, optimizerVersion: 2,
     warnings: ["Brak oszczędności w tym przebiegu."], analysis,
   };
 }
