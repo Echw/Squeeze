@@ -18,6 +18,10 @@ const MIN_TRANSPARENT_PIXEL_RATIO: f32 = 0.25;
 const MIN_SEMI_TRANSPARENT_PIXEL_RATIO: f32 = 0.05;
 const MAX_ALPHA_COMPOSITE_MEAN_DELTA: f32 = 1.25;
 const ALPHA_PALETTE_KMEANS_ROUNDS: usize = 16;
+// A very small perceptual curve gives the palette more precision where a
+// translucent colour is most visible over a bright surface. The same palette
+// remains checked against the actual black-and-white compositing error below.
+const ALPHA_PALETTE_COLOR_GAMMA: f64 = 1.15;
 const SQRT_3: f64 = 1.732_050_807_568_877_2;
 // Maps and dense interface captures can have far more distinct colours than
 // ordinary illustrations while still quantizing cleanly. The palette guard
@@ -268,9 +272,9 @@ fn exact_rgba_palette(reference: &RgbaImage) -> Option<ExactRgbaPalette> {
 
 /// A palette path reserved for images with a sizeable fully-transparent canvas
 /// and genuinely soft alpha edges.  It measures RGBA candidates in a space
-/// where Euclidean distance equals the summed squared error after compositing
-/// over black and white, so transparent edges do not get treated as ordinary
-/// four-channel colours.
+/// where alpha is measured against black and white backgrounds, with a small
+/// perceptual curve on RGB. This keeps soft edges from being treated as
+/// ordinary four-channel colours while preserving more detail over white.
 fn is_alpha_palette_candidate(reference: &RgbaImage) -> bool {
     let pixels = reference.width().saturating_mul(reference.height());
     if pixels == 0 || pixels > MAX_ALPHA_PALETTE_PIXELS {
@@ -484,7 +488,9 @@ fn alpha_premultiplied_color(point: [f64; 4]) -> [u8; 4] {
 
 fn alpha_dual_point(color: [u8; 4]) -> [f64; 4] {
     let alpha = f64::from(color[3]);
-    let channel = |value: u8| f64::from(value) * alpha / 255.0 - alpha * 0.5;
+    let channel = |value: u8| {
+        (f64::from(value) / 255.0).powf(ALPHA_PALETTE_COLOR_GAMMA) * alpha - alpha * 0.5
+    };
     [
         channel(color[0]),
         channel(color[1]),
@@ -499,7 +505,10 @@ fn alpha_dual_color(point: [f64; 4]) -> [u8; 4] {
         return [0, 0, 0, 0];
     }
     let channel = |value: f64| {
-        ((value + alpha * 0.5) * 255.0 / alpha)
+        (((value + alpha * 0.5) / alpha)
+            .clamp(0.0, 1.0)
+            .powf(1.0 / ALPHA_PALETTE_COLOR_GAMMA)
+            * 255.0)
             .round()
             .clamp(0.0, 255.0) as u8
     };
@@ -1271,6 +1280,19 @@ mod tests {
             if pixel[3] == 0 {
                 assert_eq!(indexed.colors[*index as usize][3], 0);
             }
+        }
+    }
+
+    #[test]
+    fn alpha_perceptual_point_round_trips_palette_channels() {
+        for color in [
+            [0, 0, 0, 0],
+            [18, 92, 181, 17],
+            [66, 143, 27, 128],
+            [241, 189, 34, 203],
+            [255, 255, 255, 255],
+        ] {
+            assert_eq!(alpha_dual_color(alpha_dual_point(color)), color);
         }
     }
 

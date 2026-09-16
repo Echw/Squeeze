@@ -1,6 +1,6 @@
 // Bump whenever a cached application asset changes. The worker imports its
 // encoder by a stable URL, so an older cache would silently keep old settings.
-const CACHE = "squeeze-static-v10";
+const CACHE = "squeeze-static-v11";
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
