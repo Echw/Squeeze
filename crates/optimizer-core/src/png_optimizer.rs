@@ -12,6 +12,13 @@ use crate::{check_cancelled, types::*};
 
 const PALETTE_COLORS: u16 = 256;
 const MAX_PALETTE_MEAN_DELTA: f32 = 2.5;
+const MAX_ALPHA_PALETTE_PIXELS: u32 = 1_000_000;
+const MAX_ALPHA_PALETTE_SAMPLES: usize = 100_000;
+const MIN_TRANSPARENT_PIXEL_RATIO: f32 = 0.25;
+const MIN_SEMI_TRANSPARENT_PIXEL_RATIO: f32 = 0.05;
+const MAX_ALPHA_COMPOSITE_MEAN_DELTA: f32 = 1.25;
+const ALPHA_PALETTE_KMEANS_ROUNDS: usize = 16;
+const SQRT_3: f64 = 1.732_050_807_568_877_2;
 // Maps and dense interface captures can have far more distinct colours than
 // ordinary illustrations while still quantizing cleanly. The palette guard
 // below decides their quality; this cap only keeps the one-pass encoder
@@ -61,6 +68,28 @@ pub(crate) fn optimize_png(
                 cancellation,
                 observer,
             );
+        }
+        if is_alpha_palette_candidate(&reference) {
+            check_cancelled(cancellation)?;
+            progress.report(ProgressEvent {
+                stage: ProgressStage::Compressing,
+            });
+            observer.begin(OptimizationOperation::PaletteBuild);
+            let indexed = alpha_aware_palette(&reference);
+            observer.end(OptimizationOperation::PaletteBuild);
+            if let Some(indexed) = indexed {
+                return optimize_alpha_palette(
+                    input,
+                    width,
+                    height,
+                    analysis,
+                    indexed,
+                    srgb,
+                    progress,
+                    cancellation,
+                    observer,
+                );
+            }
         }
         return optimize_lossless(
             input,
@@ -192,6 +221,26 @@ struct ExactRgbaPalette {
     indices: Vec<u8>,
 }
 
+#[derive(Clone, Copy)]
+struct AlphaSample {
+    color: [u8; 4],
+    count: u32,
+}
+
+#[derive(Clone)]
+struct PcaNode {
+    start: usize,
+    end: usize,
+    mean: [f64; 4],
+    axis: [f64; 4],
+    variance: f64,
+}
+
+struct AlphaPalette {
+    colors: Vec<[u8; 4]>,
+    indices: Vec<u8>,
+}
+
 /// Finds a palette that is bit-for-bit lossless after PNG decoding. This is
 /// intentionally limited to 256 distinct RGBA tuples, which is the PNG
 /// indexed-colour limit. Complex alpha stays on the conservative lossless
@@ -215,6 +264,294 @@ fn exact_rgba_palette(reference: &RgbaImage) -> Option<ExactRgbaPalette> {
     }
 
     Some(ExactRgbaPalette { colors, indices })
+}
+
+/// A palette path reserved for images with a sizeable fully-transparent canvas
+/// and genuinely soft alpha edges.  It measures RGBA candidates in a space
+/// where Euclidean distance equals the summed squared error after compositing
+/// over black and white, so transparent edges do not get treated as ordinary
+/// four-channel colours.
+fn is_alpha_palette_candidate(reference: &RgbaImage) -> bool {
+    let pixels = reference.width().saturating_mul(reference.height());
+    if pixels == 0 || pixels > MAX_ALPHA_PALETTE_PIXELS {
+        return false;
+    }
+    let mut transparent = 0_u32;
+    let mut semi_transparent = 0_u32;
+    for pixel in reference.pixels() {
+        match pixel[3] {
+            0 => transparent += 1,
+            255 => {}
+            _ => semi_transparent += 1,
+        }
+    }
+    transparent as f32 / pixels as f32 >= MIN_TRANSPARENT_PIXEL_RATIO
+        && semi_transparent as f32 / pixels as f32 >= MIN_SEMI_TRANSPARENT_PIXEL_RATIO
+}
+
+fn alpha_aware_palette(reference: &RgbaImage) -> Option<AlphaPalette> {
+    let mut histogram = std::collections::BTreeMap::<[u8; 4], u32>::new();
+    for pixel in reference.pixels() {
+        let color = normalized_alpha_color(pixel.0);
+        *histogram.entry(color).or_default() += 1;
+    }
+    if histogram.len() <= PALETTE_COLORS as usize || histogram.len() > MAX_ALPHA_PALETTE_SAMPLES {
+        return None;
+    }
+    let samples = histogram
+        .into_iter()
+        .map(|(color, count)| AlphaSample { color, count })
+        .collect::<Vec<_>>();
+    let mut centers = alpha_pca_seed(&samples, PALETTE_COLORS as usize);
+    if centers.len() < 2 {
+        return None;
+    }
+
+    for _ in 0..ALPHA_PALETTE_KMEANS_ROUNDS {
+        let mut sums = vec![[0.0_f64; 4]; centers.len()];
+        let mut counts = vec![0_u64; centers.len()];
+        for sample in &samples {
+            let point = alpha_dual_point(sample.color);
+            let index = nearest_alpha_color(point, &centers);
+            for channel in 0..4 {
+                sums[index][channel] += point[channel] * f64::from(sample.count);
+            }
+            counts[index] += u64::from(sample.count);
+        }
+        for index in 0..centers.len() {
+            if counts[index] == 0 {
+                continue;
+            }
+            let mean = sums[index].map(|value| value / counts[index] as f64);
+            // PNG palette entries are bytes.  Quantizing after every round
+            // keeps the training metric identical to the emitted image.
+            centers[index] = alpha_dual_point(alpha_dual_color(mean));
+        }
+    }
+
+    let colors = centers
+        .into_iter()
+        .map(alpha_dual_color)
+        .collect::<Vec<_>>();
+    let palette_points = colors
+        .iter()
+        .copied()
+        .map(alpha_dual_point)
+        .collect::<Vec<_>>();
+    let mut color_indices = std::collections::BTreeMap::<[u8; 4], u8>::new();
+    for sample in &samples {
+        color_indices.insert(
+            sample.color,
+            nearest_alpha_color(alpha_dual_point(sample.color), &palette_points) as u8,
+        );
+    }
+    let indices = reference
+        .pixels()
+        .map(|pixel| color_indices[&normalized_alpha_color(pixel.0)])
+        .collect::<Vec<_>>();
+
+    if alpha_composite_mean_delta(reference, &colors, &indices) > MAX_ALPHA_COMPOSITE_MEAN_DELTA {
+        return None;
+    }
+    Some(AlphaPalette { colors, indices })
+}
+
+fn normalized_alpha_color(mut color: [u8; 4]) -> [u8; 4] {
+    if color[3] == 0 {
+        color[..3].fill(0);
+    }
+    color
+}
+
+fn alpha_pca_seed(samples: &[AlphaSample], colors: usize) -> Vec<[f64; 4]> {
+    let mut order = (0..samples.len()).collect::<Vec<_>>();
+    let mut nodes = vec![alpha_pca_node(samples, &order, 0, order.len())];
+    while nodes.len() < colors {
+        let Some((selected, _)) = nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.end.saturating_sub(node.start) > 1)
+            .max_by(|(_, left), (_, right)| left.variance.total_cmp(&right.variance))
+        else {
+            break;
+        };
+        let node = nodes[selected].clone();
+        if node.variance < 1e-6 {
+            break;
+        }
+        let split = alpha_pca_partition(samples, &mut order, &node);
+        if split == node.start || split == node.end {
+            nodes[selected].variance = 0.0;
+            continue;
+        }
+        nodes[selected] = alpha_pca_node(samples, &order, node.start, split);
+        nodes.push(alpha_pca_node(samples, &order, split, node.end));
+    }
+    nodes
+        .into_iter()
+        .map(|node| alpha_dual_point(alpha_premultiplied_color(node.mean)))
+        .collect()
+}
+
+fn alpha_pca_node(samples: &[AlphaSample], order: &[usize], start: usize, end: usize) -> PcaNode {
+    let mut sum = [0.0_f64; 4];
+    let mut products = [[0.0_f64; 4]; 4];
+    let mut count = 0.0_f64;
+    for &index in &order[start..end] {
+        let sample = samples[index];
+        let point = alpha_premultiplied_point(sample.color);
+        let weight = f64::from(sample.count);
+        count += weight;
+        for row in 0..4 {
+            sum[row] += point[row] * weight;
+            for column in 0..4 {
+                products[row][column] += point[row] * point[column] * weight;
+            }
+        }
+    }
+    let mean = sum.map(|value| value / count.max(1.0));
+    let mut covariance = [[0.0_f64; 4]; 4];
+    for row in 0..4 {
+        for column in 0..4 {
+            covariance[row][column] =
+                products[row][column] - sum[row] * sum[column] / count.max(1.0);
+        }
+    }
+    let mut axis = [0.5_f64; 4];
+    let mut variance = 0.0_f64;
+    for _ in 0..12 {
+        let next = std::array::from_fn(|row| {
+            (0..4)
+                .map(|column| covariance[row][column] * axis[column])
+                .sum::<f64>()
+        });
+        let length = next.iter().map(|value| value * value).sum::<f64>().sqrt();
+        if length <= f64::EPSILON {
+            variance = 0.0;
+            break;
+        }
+        axis = next.map(|value| value / length);
+        variance = length;
+    }
+    PcaNode {
+        start,
+        end,
+        mean,
+        axis,
+        variance,
+    }
+}
+
+fn alpha_pca_partition(samples: &[AlphaSample], order: &mut [usize], node: &PcaNode) -> usize {
+    let plane = alpha_dot(node.mean, node.axis);
+    let mut split = node.start;
+    for index in node.start..node.end {
+        if alpha_dot(
+            alpha_premultiplied_point(samples[order[index]].color),
+            node.axis,
+        ) <= plane
+        {
+            order.swap(index, split);
+            split += 1;
+        }
+    }
+    split
+}
+
+fn alpha_premultiplied_point(color: [u8; 4]) -> [f64; 4] {
+    let alpha = f64::from(color[3]);
+    [
+        f64::from(color[0]) * alpha / 255.0,
+        f64::from(color[1]) * alpha / 255.0,
+        f64::from(color[2]) * alpha / 255.0,
+        alpha,
+    ]
+}
+
+fn alpha_premultiplied_color(point: [f64; 4]) -> [u8; 4] {
+    let alpha = point[3].round().clamp(0.0, 255.0);
+    if alpha == 0.0 {
+        return [0, 0, 0, 0];
+    }
+    let channel = |value: f64| (value * 255.0 / alpha).round().clamp(0.0, 255.0) as u8;
+    [
+        channel(point[0]),
+        channel(point[1]),
+        channel(point[2]),
+        alpha as u8,
+    ]
+}
+
+fn alpha_dual_point(color: [u8; 4]) -> [f64; 4] {
+    let alpha = f64::from(color[3]);
+    let channel = |value: u8| f64::from(value) * alpha / 255.0 - alpha * 0.5;
+    [
+        channel(color[0]),
+        channel(color[1]),
+        channel(color[2]),
+        alpha * SQRT_3 * 0.5,
+    ]
+}
+
+fn alpha_dual_color(point: [f64; 4]) -> [u8; 4] {
+    let alpha = (point[3] * 2.0 / SQRT_3).round().clamp(0.0, 255.0);
+    if alpha == 0.0 {
+        return [0, 0, 0, 0];
+    }
+    let channel = |value: f64| {
+        ((value + alpha * 0.5) * 255.0 / alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    [
+        channel(point[0]),
+        channel(point[1]),
+        channel(point[2]),
+        alpha as u8,
+    ]
+}
+
+fn nearest_alpha_color(point: [f64; 4], palette: &[[f64; 4]]) -> usize {
+    let mut winner = 0;
+    let mut best = f64::INFINITY;
+    for (index, candidate) in palette.iter().enumerate() {
+        let d0 = point[0] - candidate[0];
+        let d1 = point[1] - candidate[1];
+        let d2 = point[2] - candidate[2];
+        let d3 = point[3] - candidate[3];
+        let distance = d0 * d0 + d1 * d1 + d2 * d2 + d3 * d3;
+        if distance < best {
+            best = distance;
+            winner = index;
+        }
+    }
+    winner
+}
+
+fn alpha_dot(left: [f64; 4], right: [f64; 4]) -> f64 {
+    (0..4).map(|index| left[index] * right[index]).sum()
+}
+
+fn alpha_composite_mean_delta(reference: &RgbaImage, palette: &[[u8; 4]], indices: &[u8]) -> f32 {
+    let total = reference
+        .pixels()
+        .zip(indices)
+        .flat_map(|(pixel, &index)| {
+            let candidate = palette[index as usize];
+            [0_u8, 255].into_iter().flat_map(move |background| {
+                (0..3).map(move |channel| {
+                    let original = (f32::from(pixel[channel]) * f32::from(pixel[3])
+                        + f32::from(background) * f32::from(255 - pixel[3]))
+                        / 255.0;
+                    let compressed = (f32::from(candidate[channel]) * f32::from(candidate[3])
+                        + f32::from(background) * f32::from(255 - candidate[3]))
+                        / 255.0;
+                    (original - compressed).abs()
+                })
+            })
+        })
+        .sum::<f32>();
+    total / (reference.width().saturating_mul(reference.height()).max(1) * 6) as f32
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -275,6 +612,68 @@ fn optimize_exact_alpha_palette(
             already_optimized: false,
             optimizer_version: OPTIMIZER_VERSION,
             warnings: vec!["Przezroczystość i kolory zachowano dokładnie w palecie PNG.".into()],
+            analysis,
+        },
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn optimize_alpha_palette(
+    input: &[u8],
+    width: u32,
+    height: u32,
+    analysis: ImageAnalysis,
+    indexed: AlphaPalette,
+    srgb: Option<png::SrgbRenderingIntent>,
+    progress: &dyn ProgressSink,
+    cancellation: &dyn CancellationToken,
+    observer: &dyn OptimizationObserver,
+) -> Result<OptimizationResult, OptimizeError> {
+    check_cancelled(cancellation)?;
+    observer.begin(OptimizationOperation::PngEncode);
+    let output = encode_indexed_rgba_png(width, height, &indexed.colors, &indexed.indices, srgb)?;
+    observer.end(OptimizationOperation::PngEncode);
+    progress.report(ProgressEvent {
+        stage: ProgressStage::Finalizing,
+    });
+
+    if output.len() >= input.len() {
+        return Ok(passthrough(
+            input,
+            width,
+            height,
+            analysis,
+            vec!["Brak oszczędności w tym przebiegu.".into()],
+        ));
+    }
+
+    let optimized_size = output.len();
+    let saved_bytes = input.len() - optimized_size;
+    Ok(OptimizationResult {
+        output,
+        report: OptimizationReport {
+            format: ImageFormat::Png,
+            output_format: ImageFormat::Png,
+            width,
+            height,
+            original_size: input.len(),
+            optimized_size,
+            saved_bytes,
+            saved_percent: saved_bytes as f32 / input.len() as f32 * 100.0,
+            strategy: SelectedStrategy {
+                encoder: "alpha-aware palette".into(),
+                quality: None,
+                chroma_subsampling: None,
+                progressive: None,
+                palette_colors: Some(indexed.colors.len() as u16),
+                lossless: false,
+            },
+            processing_time_ms: 0.0,
+            already_optimized: false,
+            optimizer_version: OPTIMIZER_VERSION,
+            warnings: vec![
+                "Przezroczystość zachowano w palecie dopasowanej do jasnego i ciemnego tła.".into(),
+            ],
             analysis,
         },
     })
@@ -839,6 +1238,40 @@ mod tests {
         assert_eq!(result.report.strategy.palette_colors, Some(3));
         assert!(result.output.len() < input.len());
         assert_eq!(decode_png(&result.output).unwrap(), reference);
+    }
+
+    #[test]
+    fn alpha_palette_preserves_a_transparent_canvas_and_limits_composite_error() {
+        let reference = RgbaImage::from_fn(160, 120, |x, y| {
+            if x < 48 {
+                return image::Rgba([0, 0, 0, 0]);
+            }
+            let alpha = 72 + ((x * 11 + y * 7) % 170) as u8;
+            let colors = [[218, 77, 88], [65, 130, 223], [82, 190, 116]];
+            image::Rgba([
+                colors[((x / 32 + y / 24) % 3) as usize][0],
+                colors[((x / 32 + y / 24) % 3) as usize][1],
+                colors[((x / 32 + y / 24) % 3) as usize][2],
+                alpha,
+            ])
+        });
+        assert!(is_alpha_palette_candidate(&reference));
+
+        let indexed = alpha_aware_palette(&reference).expect("palette should meet the alpha guard");
+        assert!(indexed.colors.len() <= PALETTE_COLORS as usize);
+        assert_eq!(
+            indexed.indices.len(),
+            reference.width() as usize * reference.height() as usize
+        );
+        assert!(
+            alpha_composite_mean_delta(&reference, &indexed.colors, &indexed.indices)
+                <= MAX_ALPHA_COMPOSITE_MEAN_DELTA
+        );
+        for (pixel, index) in reference.pixels().zip(&indexed.indices) {
+            if pixel[3] == 0 {
+                assert_eq!(indexed.colors[*index as usize][3], 0);
+            }
+        }
     }
 
     #[test]
