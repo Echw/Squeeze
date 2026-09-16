@@ -6,7 +6,9 @@ JPEG, PNG pozostaje PNG. Nazwy i piksele obrazów nie opuszczają urządzenia.
 ## Działanie
 
 - Jeden automatyczny przebieg na plik, bez profili i trybu eksperckiego.
-- JPEG: MozJPEG z parametrami dobieranymi po lekkiej analizie obrazu.
+- JPEG: Jpegli WASM z jednym doborem jakości po lekkiej analizie obrazu;
+  zachowuje JPEG, wymiary, widoczny obrót i profil ICC. Gdy przeglądarka nie
+  udostępnia wymaganych prymitywów, wraca do bezpiecznej ścieżki MozJPEG.
 - PNG: jedna paleta 256 kolorów dla bezpiecznych, nieprzezroczystych grafik;
   pozostałe PNG otrzymują jedną bezstratną optymalizację z zachowaniem alpha,
   16-bitów i wrażliwych informacji o kolorze.
@@ -71,5 +73,7 @@ web/                     interfejs, kolejka, Workery i pobieranie wyników
 
 ## Licencja
 
-Kod Squeeze jest dostępny na licencji [MIT](LICENSE). Projekt nie używa
-libimagequant ani zależności GPL.
+Kod Squeeze jest dostępny na licencji [MIT](LICENSE). Jpegli i jego wrapper
+mają licencję BSD-3-Clause, a połączone Highway Apache-2.0 lub BSD-3-Clause;
+pochodzenie artefaktu jest w [third_party/jpegli](third_party/jpegli). Projekt
+nie używa libimagequant ani zależności GPL.

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "web", "public", "wasm");
-const artifacts = [join(output, "optimizer_wasm.js"), join(output, "optimizer_wasm_bg.wasm")];
+const artifacts = [join(output, "optimizer_wasm.js"), join(output, "optimizer_wasm_bg.wasm"), join(output, "jpegli.wasm")];
 const inputs = [join(root, "Cargo.toml"), join(root, "Cargo.lock"), join(root, "crates")];
 
 if (artifacts.every(existsSync) && oldest(artifacts) >= newest(inputs)) {

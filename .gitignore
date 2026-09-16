@@ -3,5 +3,7 @@
 /web/node_modules
 /web/dist
 /web/public/wasm
+!/web/public/wasm/
+!/web/public/wasm/jpegli.wasm
 *.tmp
 .DS_Store

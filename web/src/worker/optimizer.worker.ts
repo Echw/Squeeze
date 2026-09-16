@@ -2,6 +2,7 @@
 
 import type { OptimizationReport, ProgressStage, WorkerRequest, WorkerResponse } from "../types";
 import { WORKER_API_VERSION } from "../types";
+import { isJpeg, optimizeJpegWithJpegli } from "./jpegli";
 
 interface WasmResult { report_json: string; take_bytes(): Uint8Array }
 interface OptimizerWasm {
@@ -38,12 +39,27 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   activeJobId = request.jobId;
   activeAttempt = request.attempt;
   try {
-    const wasm = await loadWasm();
     const progress = (eventJson: string) => {
       const { stage } = JSON.parse(eventJson) as { stage: ProgressStage };
       if (activeJobId !== request.jobId || activeAttempt !== request.attempt) return;
       post({ version: WORKER_API_VERSION, type: "progress", jobId: request.jobId, attempt: request.attempt, stage });
     };
+
+    if (isJpeg(new Uint8Array(request.buffer))) {
+      try {
+        const jpegli = await optimizeJpegWithJpegli(new Uint8Array(request.buffer), (stage) => {
+          if (activeJobId !== request.jobId || activeAttempt !== request.attempt) return;
+          post({ version: WORKER_API_VERSION, type: "progress", jobId: request.jobId, attempt: request.attempt, stage });
+        });
+        complete(request.jobId, request.attempt, jpegli.report, jpegli.output);
+        return;
+      } catch {
+        // Malformed metadata and browsers without the required canvas
+        // primitives use the established Rust/WASM path.
+      }
+    }
+
+    const wasm = await loadWasm();
     const result = wasm.optimize_image(new Uint8Array(request.buffer), OPTIONS, progress);
     const output = result.take_bytes();
     const buffer = output.buffer.slice(output.byteOffset, output.byteOffset + output.byteLength) as ArrayBuffer;

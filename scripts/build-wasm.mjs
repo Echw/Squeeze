@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { delimiter, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
@@ -49,4 +49,5 @@ if (result.error?.code === "ENOENT") {
   console.error("Nie znaleziono wasm-bindgen-cli ani wasm-pack. Zainstaluj: cargo install wasm-bindgen-cli --version 0.2.128 --locked");
   process.exit(1);
 }
+if (result.status === 0) writeFileSync(join(output, ".gitignore"), "*\n!jpegli.wasm\n");
 process.exit(result.status ?? 1);
