@@ -10,7 +10,7 @@
     "dev:web": "npm --workspace web run dev",
     "build": "npm run build:wasm && npm --prefix web run build",
     "test": "npm --workspace web run test && cargo test --workspace",
-    "check": "cargo fmt --all -- --check && cargo test --workspace && npm --workspace web run check",
+    "check": "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && npm --workspace web run check",
     "check:web": "npm --workspace web run check"
   }
 }

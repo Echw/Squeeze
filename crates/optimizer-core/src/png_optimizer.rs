@@ -330,8 +330,8 @@ fn alpha_aware_palette(reference: &RgbaImage, palette_size: usize) -> Option<Alp
         for sample in &samples {
             let point = alpha_dual_point(sample.color);
             let index = nearest_alpha_color(point, &centers);
-            for channel in 0..4 {
-                sums[index][channel] += point[channel] * f64::from(sample.count);
+            for (channel, value) in point.iter().enumerate() {
+                sums[index][channel] += value * f64::from(sample.count);
             }
             counts[index] += u64::from(sample.count);
         }
