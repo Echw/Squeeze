@@ -1,5 +1,8 @@
 # Squeeze — benchmark 2026-09-15
 
+> Historyczny pomiar wcześniejszego silnika. Aktualne porównanie produkcyjnego
+> Workera z TinyPNG jest w [raporcie z 16 września](tiny-comparison-2026-09-16.md).
+
 ## Zakres i corpus
 
 W katalogu tymczasowym utworzono corpus 24 publicznych plików: 8 JPEG i 16

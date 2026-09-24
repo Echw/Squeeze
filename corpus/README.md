@@ -17,6 +17,10 @@ zaakceptowanym baseline'em poza repozytorium.
 lokalnego porównania. Same pobrane binaria pozostają w katalogu tymczasowym,
 poza Git.
 
+Adresy ikon Noto Emoji są przypięte do rewizji sprzed zmiany układu katalogów
+z 17 września 2026. Pobranie tych 10 plików daje dokładnie te same bajty,
+które posłużyły do porównania z TinyPNG.
+
 ## Fixture generowany w repozytorium
 
 Do testów i benchmarków bez obciążeń licencyjnych użyj deterministycznego

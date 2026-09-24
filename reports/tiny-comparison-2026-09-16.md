@@ -1,5 +1,8 @@
 # Squeeze vs TinyPNG — aktualny corpus publiczny, 2026-09-16
 
+> Stan produkcyjnego Workera z 16 września. Późniejszą poprawkę małego PNG
+> opisuje [raport z 24 września](png-small-graphics-2026-09-24.md).
+
 ## Metoda
 
 Ten sam corpus 24 publicznych plików z

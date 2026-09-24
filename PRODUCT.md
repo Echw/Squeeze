@@ -26,10 +26,11 @@ Obrazy, ich nazwy i piksele nie opuszczają urządzenia.
 - JPEG pozostaje JPEG, PNG pozostaje PNG; nie ma konwersji WebP ani opcji
   eksperckich. Migracja usuwa wcześniejsze ustawienia, które mogłyby je przywrócić.
 - Rust/WASM pozostaje wspólnym silnikiem dla JPEG i PNG w jednym Workerze.
-- Automatyka redukuje kwalifikujący się nieprzezroczysty PNG 8-bit do jednej
-  palety 256 kolorów bez ditheringu; wynik większy od wejścia jest odrzucany.
-- PNG z alpha, 16-bit, osadzonym zarządzaniem kolorem lub EXIF korzysta z
-  bezpiecznej ścieżki lossless, gdy zachowuje format.
+- Automatyka wybiera jedną paletę przed kodowaniem kwalifikującego się PNG;
+  grafika bez alpha używa Quantette, a prosta grafika z alpha może użyć palety
+  RGBA. Wynik indeksowany otrzymuje jedną bezstratną finalizację OxiPNG.
+- PNG 16-bit oraz PNG z osadzonym zarządzaniem kolorem lub EXIF korzystają z
+  bezstratnej ścieżki. Wynik większy od wejścia jest odrzucany.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
 
 ## Brand Commitments

@@ -9,9 +9,11 @@ JPEG, PNG pozostaje PNG. Nazwy i piksele obrazów nie opuszczają urządzenia.
 - JPEG: Jpegli WASM z jednym doborem jakości po lekkiej analizie obrazu;
   zachowuje JPEG, wymiary, widoczny obrót i profil ICC. Gdy przeglądarka nie
   udostępnia wymaganych prymitywów, wraca do bezpiecznej ścieżki MozJPEG.
-- PNG: jedna paleta 256 kolorów dla bezpiecznych, nieprzezroczystych grafik;
-  pozostałe PNG otrzymują jedną bezstratną optymalizację z zachowaniem alpha,
-  16-bitów i wrażliwych informacji o kolorze.
+- PNG: grafiki mogą otrzymać jedną paletę dobraną przed zapisem, również z
+  przezroczystością. Proste obrazy z alpha mogą użyć palety bezstratnej, a
+  wybrane grafiki z dużym przezroczystym tłem palety z kontrolowaną zmianą
+  kolorów. Wynik indeksowany przechodzi jeden bezstratny etap OxiPNG w WASM.
+  PNG 16-bit i pliki z wrażliwymi informacjami o kolorze pozostają bezstratne.
 - Wynik większy od wejścia jest odrzucany. Aplikacja zwraca wtedy oryginał z
   komunikatem „Brak oszczędności w tym przebiegu”.
 - Jeden Worker wykonuje kolejkę kolejno, ograniczając użycie pamięci.

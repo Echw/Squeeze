@@ -205,7 +205,7 @@ pub(crate) fn optimize_png(
                 quality: None,
                 chroma_subsampling: None,
                 progressive: None,
-                palette_colors: Some(PALETTE_COLORS),
+                palette_colors: Some(indexed.palette().len() as u16),
                 lossless: false,
             },
             processing_time_ms: 0.0,
@@ -908,11 +908,14 @@ fn encode_indexed_png(
     srgb: Option<png::SrgbRenderingIntent>,
 ) -> Result<Vec<u8>, OptimizeError> {
     let (palette, indices) = sort_palette_by_luma(palette, indices);
+    let depth = indexed_bit_depth(palette.len());
+    let packed_indices = (depth != png::BitDepth::Eight)
+        .then(|| pack_indices(&indices, depth, width as usize, height as usize));
     let mut output = Vec::new();
     {
         let mut encoder = png::Encoder::new(Cursor::new(&mut output), width, height);
         encoder.set_color(png::ColorType::Indexed);
-        encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_depth(depth);
         if let Some(intent) = srgb {
             encoder.set_source_srgb(intent);
         }
@@ -924,7 +927,7 @@ fn encode_indexed_png(
         encoder
             .write_header()
             .map_err(|error| OptimizeError::Encode(error.to_string()))?
-            .write_image_data(&indices)
+            .write_image_data(packed_indices.as_deref().unwrap_or(&indices))
             .map_err(|error| OptimizeError::Encode(error.to_string()))?;
     }
     Ok(output)
@@ -1386,6 +1389,24 @@ mod tests {
             .map(|&index| palette[index as usize])
             .collect::<Vec<_>>();
         assert_eq!(restored, expected);
+    }
+
+    #[test]
+    fn opaque_palette_packs_rows_without_changing_pixels() {
+        let palette = vec![
+            quantette::deps::palette::Srgb::new(20, 30, 40),
+            quantette::deps::palette::Srgb::new(120, 130, 140),
+            quantette::deps::palette::Srgb::new(220, 230, 240),
+        ];
+        let indices = (0..39).map(|pixel| (pixel % 3) as u8).collect::<Vec<_>>();
+        let output = encode_indexed_png(13, 3, &palette, &indices, None).unwrap();
+
+        assert_eq!(output[24], 2);
+        let decoded = decode_png(&output).unwrap();
+        for (pixel, &index) in decoded.pixels().zip(&indices) {
+            let color = palette[index as usize];
+            assert_eq!(pixel.0, [color.red, color.green, color.blue, 255]);
+        }
     }
 
     #[test]
