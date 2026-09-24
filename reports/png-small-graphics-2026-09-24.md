@@ -21,7 +21,7 @@ dały kolejno 6 108 B i 4 081 B; pięć rozgrzanych przebiegów obu etapów mia�
 medianę 87,4 ms i p95 102,1 ms. To nie jest pomiar przeglądarki. Dziesięć ikon
 Noto Emoji zachowało identyczny wynik rdzenia jak przed zmianą.
 
-## Próby na ikonach, bez zmiany automatyki
+## Próby na ikonach przed kolejną zmianą automatyki
 
 Sprawdzono pojedynczy zapis mniejszej palety RGBA i jeden OxiPNG na dziesięciu
 publicznych ikonach. Na części plików istnieje przestrzeń na dalszy zysk:
@@ -32,13 +32,15 @@ publicznych ikonach. Na części plików istnieje przestrzeń na dalszy zysk:
 | `emoji-laptop.png`, 64 | 6 280 B | 6 499 B | Lepszy SSIMULACRA2 i Butteraugli |
 | `emoji-target.png`, 96 | 9 079 B | 9 326 B | Lepszy SSIMULACRA2 i Butteraugli |
 
-Tego wyboru nie włączono do aplikacji. Jeden próg liczby kolorów nie działa
+Na tym etapie wyboru nie włączono do aplikacji. Jeden próg liczby kolorów nie działa
 dobrze na pozostałych ikonach: np. `emoji-grin.png` przy 64 kolorach jest
 mniejszy od TinyPNG, ale ma gorsze obie metryki na obu tłach. Obecna bramka
 średniego błędu przepuszcza także takie przypadki, więc przed zmianą domyślnej
 palety trzeba opracować mocniejszą ocenę krawędzi i sprawdzić ją na nowych,
 niewykorzystanych przy doborze progu obrazach. W każdym badanym kandydacie
 całkowicie przezroczyste piksele pozostały całkowicie przezroczyste.
+
+Kolejny krok i jego ograniczenia opisuje [raport o palecie RGBA](png-alpha-palette-2026-09-24.md).
 
 ## Metoda i granice
 

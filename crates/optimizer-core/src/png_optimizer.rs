@@ -20,6 +20,8 @@ const MAX_ALPHA_PALETTE_PIXELS: u32 = 6_000_000;
 const MAX_ALPHA_PALETTE_SAMPLES: usize = 100_000;
 const MIN_TRANSPARENT_PIXEL_RATIO: f32 = 0.25;
 const MAX_ALPHA_COMPOSITE_MEAN_DELTA: f32 = 1.25;
+const MAX_REDUCED_PALETTE_VISIBLE_OUTLIERS_PERCENT: u32 = 1;
+const VISIBLE_OUTLIER_DELTA: f32 = 2.0;
 const ALPHA_PALETTE_KMEANS_ROUNDS: usize = 16;
 // A very small perceptual curve gives the palette more precision where a
 // translucent colour is most visible over a bright surface. The same palette
@@ -248,6 +250,13 @@ struct AlphaPalette {
     indices: Vec<u8>,
 }
 
+struct AlphaPaletteDistortion {
+    mean_delta: f32,
+    visible_pixels: u32,
+    visible_outliers: u32,
+    preserves_transparent_pixels: bool,
+}
+
 /// Finds a palette that is bit-for-bit lossless after PNG decoding. This is
 /// intentionally limited to 256 distinct RGBA tuples, which is the PNG
 /// indexed-colour limit. Complex alpha stays on the conservative lossless
@@ -292,15 +301,20 @@ fn is_alpha_palette_candidate(reference: &RgbaImage) -> bool {
     transparent as f32 / pixels as f32 >= MIN_TRANSPARENT_PIXEL_RATIO
 }
 
-/// A flat logo with a very small colour distribution needs fewer entries than
-/// a gradient or a soft illustration. This is an analysis-only decision made
-/// before the one palette build; it never creates alternative encodings.
+/// Choose the palette budget before the one quantization pass. Less complex
+/// graphics can use fewer entries; the resulting pixels still pass a separate
+/// compositing guard before encoding.
 fn alpha_palette_size(analysis: &ImageAnalysis) -> usize {
     if matches!(analysis.kind, ContentKind::Graphic)
         && analysis.entropy <= 1.0
         && analysis.flat_area_ratio >= 0.98
     {
         20
+    } else if matches!(analysis.kind, ContentKind::Graphic)
+        && analysis.estimated_colors <= 300
+        && analysis.entropy >= 2.3
+    {
+        96
     } else {
         PALETTE_COLORS as usize
     }
@@ -367,7 +381,8 @@ fn alpha_aware_palette(reference: &RgbaImage, palette_size: usize) -> Option<Alp
         .map(|pixel| color_indices[&normalized_alpha_color(pixel.0)])
         .collect::<Vec<_>>();
 
-    if alpha_composite_mean_delta(reference, &colors, &indices) > MAX_ALPHA_COMPOSITE_MEAN_DELTA {
+    let distortion = alpha_palette_distortion(reference, &colors, &indices);
+    if !is_alpha_palette_quality_acceptable(&distortion, palette_size) {
         return None;
     }
     Some(AlphaPalette { colors, indices })
@@ -554,26 +569,59 @@ fn alpha_dot(left: [f64; 4], right: [f64; 4]) -> f64 {
     (0..4).map(|index| left[index] * right[index]).sum()
 }
 
-fn alpha_composite_mean_delta(reference: &RgbaImage, palette: &[[u8; 4]], indices: &[u8]) -> f32 {
-    let total = reference
-        .pixels()
-        .zip(indices)
-        .flat_map(|(pixel, &index)| {
-            let candidate = palette[index as usize];
-            [0_u8, 255].into_iter().flat_map(move |background| {
-                (0..3).map(move |channel| {
-                    let original = (f32::from(pixel[channel]) * f32::from(pixel[3])
-                        + f32::from(background) * f32::from(255 - pixel[3]))
-                        / 255.0;
-                    let compressed = (f32::from(candidate[channel]) * f32::from(candidate[3])
-                        + f32::from(background) * f32::from(255 - candidate[3]))
-                        / 255.0;
-                    (original - compressed).abs()
-                })
-            })
-        })
-        .sum::<f32>();
-    total / (reference.width().saturating_mul(reference.height()).max(1) * 6) as f32
+fn alpha_palette_distortion(
+    reference: &RgbaImage,
+    palette: &[[u8; 4]],
+    indices: &[u8],
+) -> AlphaPaletteDistortion {
+    let mut total_delta = 0.0_f32;
+    let mut visible_pixels = 0_u32;
+    let mut visible_outliers = 0_u32;
+    let mut preserves_transparent_pixels = true;
+    for (pixel, &index) in reference.pixels().zip(indices) {
+        let candidate = palette[index as usize];
+        if pixel[3] == 0 {
+            preserves_transparent_pixels &= candidate[3] == 0;
+        } else {
+            visible_pixels += 1;
+        }
+        let mut worst_background_delta = 0.0_f32;
+        for background in [0_u8, 255] {
+            let mut background_delta = 0.0_f32;
+            for channel in 0..3 {
+                let original = (f32::from(pixel[channel]) * f32::from(pixel[3])
+                    + f32::from(background) * f32::from(255 - pixel[3]))
+                    / 255.0;
+                let compressed = (f32::from(candidate[channel]) * f32::from(candidate[3])
+                    + f32::from(background) * f32::from(255 - candidate[3]))
+                    / 255.0;
+                background_delta += (original - compressed).abs();
+            }
+            total_delta += background_delta;
+            worst_background_delta = worst_background_delta.max(background_delta / 3.0);
+        }
+        if pixel[3] != 0 && worst_background_delta > VISIBLE_OUTLIER_DELTA {
+            visible_outliers += 1;
+        }
+    }
+    AlphaPaletteDistortion {
+        mean_delta: total_delta
+            / (reference.width().saturating_mul(reference.height()).max(1) * 6) as f32,
+        visible_pixels,
+        visible_outliers,
+        preserves_transparent_pixels,
+    }
+}
+
+fn is_alpha_palette_quality_acceptable(
+    distortion: &AlphaPaletteDistortion,
+    palette_size: usize,
+) -> bool {
+    distortion.preserves_transparent_pixels
+        && distortion.mean_delta <= MAX_ALPHA_COMPOSITE_MEAN_DELTA
+        && (palette_size == PALETTE_COLORS as usize
+            || distortion.visible_outliers * 100
+                <= distortion.visible_pixels * MAX_REDUCED_PALETTE_VISIBLE_OUTLIERS_PERCENT)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1289,10 +1337,11 @@ mod tests {
             indexed.indices.len(),
             reference.width() as usize * reference.height() as usize
         );
-        assert!(
-            alpha_composite_mean_delta(&reference, &indexed.colors, &indexed.indices)
-                <= MAX_ALPHA_COMPOSITE_MEAN_DELTA
-        );
+        let distortion = alpha_palette_distortion(&reference, &indexed.colors, &indexed.indices);
+        assert!(is_alpha_palette_quality_acceptable(
+            &distortion,
+            PALETTE_COLORS as usize
+        ));
         for (pixel, index) in reference.pixels().zip(&indexed.indices) {
             if pixel[3] == 0 {
                 assert_eq!(indexed.colors[*index as usize][3], 0);
@@ -1323,6 +1372,43 @@ mod tests {
 
         assert_eq!(alpha_palette_size(&flat_logo), 20);
         assert_eq!(alpha_palette_size(&gradient), PALETTE_COLORS as usize);
+        let mut simple_illustration = flat_logo;
+        simple_illustration.entropy = 2.7;
+        simple_illustration.estimated_colors = 260;
+        simple_illustration.flat_area_ratio = 0.94;
+        assert_eq!(alpha_palette_size(&simple_illustration), 96);
+        simple_illustration.entropy = 1.8;
+        assert_eq!(alpha_palette_size(&simple_illustration), 256);
+    }
+
+    #[test]
+    fn reduced_alpha_palette_rejects_visible_outliers_and_alpha_leaks() {
+        let reference = RgbaImage::from_fn(11, 10, |x, y| {
+            if x == 0 && y == 0 {
+                image::Rgba([0, 0, 0, 0])
+            } else {
+                image::Rgba([100, 100, 100, 255])
+            }
+        });
+        let palette = [[0, 0, 0, 0], [100, 100, 100, 255], [110, 110, 110, 255]];
+        let mut indices = vec![1_u8; 110];
+        indices[0] = 0;
+        indices[1] = 2;
+        indices[2] = 2;
+        let distortion = alpha_palette_distortion(&reference, &palette, &indices);
+        assert!(distortion.mean_delta < MAX_ALPHA_COMPOSITE_MEAN_DELTA);
+        assert!(!is_alpha_palette_quality_acceptable(&distortion, 96));
+
+        indices[2] = 1;
+        assert!(is_alpha_palette_quality_acceptable(
+            &alpha_palette_distortion(&reference, &palette, &indices),
+            96
+        ));
+        indices[0] = 1;
+        assert!(!is_alpha_palette_quality_acceptable(
+            &alpha_palette_distortion(&reference, &palette, &indices),
+            256
+        ));
     }
 
     #[test]

@@ -189,4 +189,4 @@ pub enum OptimizeError {
     InvalidColorProfile,
 }
 
-pub(crate) const OPTIMIZER_VERSION: u16 = 5;
+pub(crate) const OPTIMIZER_VERSION: u16 = 6;
