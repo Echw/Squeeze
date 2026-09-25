@@ -1,6 +1,5 @@
-// Bump whenever a cached application asset changes. The worker imports its
-// encoder by a stable URL, so an older cache would silently keep old settings.
-const CACHE = "squeeze-static-v13";
+// Bump whenever the cached application or its compression assets change.
+const CACHE = "squeeze-static-v15";
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
@@ -10,8 +9,11 @@ self.addEventListener("install", (event) => {
     const shellAssets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
       .map((match) => match[1])
       .filter((path) => path?.startsWith("/"));
+    const manifestResponse = await fetch("/precache-manifest.json", { cache: "no-store" });
+    if (!manifestResponse.ok) throw new Error("Offline asset manifest is unavailable");
+    const requiredAssets = await manifestResponse.json();
     await cache.put("/", response);
-    await cache.addAll([...new Set([...shellAssets, "/wasm/jpegli.wasm"])]);
+    await cache.addAll([...new Set([...shellAssets, ...requiredAssets])]);
   })());
   self.skipWaiting();
 });

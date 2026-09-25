@@ -3,15 +3,9 @@
 import type { OptimizationReport, ProgressStage, WorkerRequest, WorkerResponse } from "../types";
 import { WORKER_API_VERSION } from "../types";
 import { isJpeg, optimizeJpegWithJpegli } from "./jpegli";
+import * as optimizerWasm from "virtual:optimizer-wasm-glue";
 import initOxiPng, { optimise as optimiseOxiPng } from "@jsquash/oxipng/codec/pkg/squoosh_oxipng.js";
 import oxiPngWasmUrl from "@jsquash/oxipng/codec/pkg/squoosh_oxipng_bg.wasm?url";
-
-interface WasmResult { report_json: string; take_bytes(): Uint8Array }
-interface OptimizerWasm {
-  default(input?: { module_or_path: URL }): Promise<unknown>;
-  worker_api_version(): number;
-  optimize_image(input: Uint8Array, optionsJson: string, progress: (eventJson: string) => void): WasmResult;
-}
 
 const OPTIONS = JSON.stringify({
   limits: {
@@ -22,7 +16,7 @@ const OPTIONS = JSON.stringify({
 });
 const MAX_LOSSLESS_ALPHA_FINALIZER_PIXELS = 1_000_000;
 
-let modulePromise: Promise<OptimizerWasm> | undefined;
+let modulePromise: Promise<typeof optimizerWasm> | undefined;
 let pngFinalizerPromise: Promise<unknown> | undefined;
 let activeJobId: string | undefined;
 let activeAttempt: number | undefined;
@@ -86,13 +80,11 @@ async function announceReadiness(): Promise<void> {
   });
 }
 
-async function loadWasm(): Promise<OptimizerWasm> {
+async function loadWasm(): Promise<typeof optimizerWasm> {
   modulePromise ??= (async () => {
-    const moduleUrl = new URL("/wasm/optimizer_wasm.js", self.location.origin).href;
-    const wasm = (await import(/* @vite-ignore */ moduleUrl)) as OptimizerWasm;
-    await wasm.default({ module_or_path: new URL("/wasm/optimizer_wasm_bg.wasm", self.location.origin) });
-    if (wasm.worker_api_version() !== WORKER_API_VERSION) throw userError("ENGINE_VERSION", "Wersja silnika WASM nie pasuje do aplikacji.", false);
-    return wasm;
+    await optimizerWasm.default({ module_or_path: new URL("/wasm/optimizer_wasm_bg.wasm", self.location.origin) });
+    if (optimizerWasm.worker_api_version() !== WORKER_API_VERSION) throw userError("ENGINE_VERSION", "Wersja silnika WASM nie pasuje do aplikacji.", false);
+    return optimizerWasm;
   })();
   return modulePromise;
 }

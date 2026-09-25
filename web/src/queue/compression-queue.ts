@@ -3,6 +3,7 @@ import { WORKER_API_VERSION } from "../types";
 
 export type EngineState = "loading" | "ready" | "error";
 type Listener = (jobs: readonly CompressionJob[], paused: boolean, engine: EngineState, capabilities?: WorkerCapabilities) => void;
+const WORKER_START_TIMEOUT_MS = 30_000;
 
 export interface CompressionQueueOptions { workerFactory?: () => Worker; }
 export interface AddResult { accepted: number; rejected: File[]; }
@@ -18,6 +19,7 @@ export class CompressionQueue {
   #workerFactory?: () => Worker;
   #listeners = new Set<Listener>();
   #previewUrls = new Map<string, string>();
+  #startupTimer?: ReturnType<typeof setTimeout>;
 
   constructor(options: CompressionQueueOptions = {}) {
     this.#workerFactory = options.workerFactory;
@@ -38,6 +40,7 @@ export class CompressionQueue {
       accepted += 1;
       this.#jobs.push({ id: crypto.randomUUID(), file, attempt: 0, status: "queued" });
     }
+    if (this.#engine === "error") this.#failQueuedJobs("ENGINE_UNAVAILABLE", "Silnik kompresji jest niedostępny. Spróbuj ponownie.");
     this.#emit();
     void this.#pump();
     return { accepted, rejected };
@@ -104,15 +107,21 @@ export class CompressionQueue {
   }
 
   dispose(): void {
+    this.#clearStartupTimer();
     this.#worker.terminate();
     for (const url of this.#previewUrls.values()) URL.revokeObjectURL(url);
     this.#previewUrls.clear();
   }
 
   #createWorker(): Worker {
+    this.#clearStartupTimer();
     const worker = this.#workerFactory?.() ?? new Worker(new URL("../worker/optimizer.worker.ts", import.meta.url), { type: "module", name: "squeeze-optimizer" });
-    worker.onmessage = (event: MessageEvent<WorkerResponse>) => this.#onMessage(event.data);
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      if (this.#worker === worker) this.#onMessage(event.data);
+    };
     worker.onerror = (event) => {
+      if (this.#worker !== worker) return;
+      this.#clearStartupTimer();
       this.#engine = "error";
       const active = this.#activeId ? this.#find(this.#activeId) : undefined;
       if (active) {
@@ -122,10 +131,34 @@ export class CompressionQueue {
         active.recoverable = true;
       }
       this.#activeId = undefined;
+      this.#failQueuedJobs("WORKER_CRASH", "Worker uległ awarii. Spróbuj ponownie.");
       worker.terminate();
       this.#emit();
     };
+    this.#startupTimer = setTimeout(() => {
+      if (this.#worker !== worker || this.#engine !== "loading") return;
+      this.#clearStartupTimer();
+      this.#engine = "error";
+      this.#failQueuedJobs("WORKER_START_TIMEOUT", "Silnik kompresji nie uruchomił się. Spróbuj ponownie.");
+      worker.terminate();
+      this.#emit();
+    }, WORKER_START_TIMEOUT_MS);
     return worker;
+  }
+
+  #clearStartupTimer(): void {
+    if (this.#startupTimer !== undefined) clearTimeout(this.#startupTimer);
+    this.#startupTimer = undefined;
+  }
+
+  #failQueuedJobs(code: string, message: string): void {
+    for (const job of this.#jobs) {
+      if (job.status !== "queued") continue;
+      job.status = "error";
+      job.error = message;
+      job.errorCode = code;
+      job.recoverable = true;
+    }
   }
 
   async #pump(): Promise<void> {
@@ -157,8 +190,10 @@ export class CompressionQueue {
   #onMessage(message: WorkerResponse): void {
     if (message.version !== WORKER_API_VERSION) return;
     if (message.type === "ready") {
+      this.#clearStartupTimer();
       this.#capabilities = message.capabilities;
       this.#engine = message.capabilities.preserve ? "ready" : "error";
+      if (this.#engine === "error") this.#failQueuedJobs("ENGINE_UNAVAILABLE", "Silnik WASM nie uruchomił się. Spróbuj ponownie.");
       this.#emit();
       if (this.#engine === "ready") void this.#pump();
       return;

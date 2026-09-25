@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CompressionJob, OptimizationReport, WorkerRequest, WorkerResponse } from "../types";
 import { WORKER_API_VERSION } from "../types";
 import { CompressionQueue } from "./compression-queue";
@@ -58,20 +58,45 @@ describe("CompressionQueue", () => {
     expect(jobs[0]).toMatchObject({ status: "error", error: "Worker uległ awarii: boom" });
     queue.retry(jobs[0]!.id);
     expect(workers).toHaveLength(2);
+    announceReady(workers[0]!);
+    expect(engine).toBe("loading");
     announceReady(workers[1]!);
     await tick();
     expect(workers[1]!.messages[0]).toMatchObject({ type: "compress", attempt: 1 });
     queue.dispose();
   });
 
-  it("reports an unavailable engine when preserve mode is missing", () => {
+  it("lets the user retry when the WASM engine is unavailable", () => {
     const worker = new FakeWorker();
     const queue = new CompressionQueue({ workerFactory: () => worker as unknown as Worker });
+    let jobs: readonly CompressionJob[] = [];
     let engine: import("./compression-queue").EngineState = "loading";
-    queue.subscribe((_jobs, _paused, nextEngine) => { engine = nextEngine; });
+    queue.subscribe((next, _paused, nextEngine) => { jobs = next; engine = nextEngine; });
+    queue.add([imageFile()]);
     worker.emit({ version: WORKER_API_VERSION, type: "ready", capabilities: { preserve: false, maxPixels: 24_000_000 } });
     expect(engine).toBe("error");
+    expect(jobs[0]).toMatchObject({ status: "error", errorCode: "ENGINE_UNAVAILABLE", recoverable: true });
+    queue.add([imageFile("another.png")]);
+    expect(jobs[1]).toMatchObject({ status: "error", errorCode: "ENGINE_UNAVAILABLE", recoverable: true });
     queue.dispose();
+  });
+
+  it("reports a silent worker startup failure instead of waiting forever", () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const queue = new CompressionQueue({ workerFactory: () => worker as unknown as Worker });
+      let jobs: readonly CompressionJob[] = [];
+      let engine: import("./compression-queue").EngineState = "loading";
+      queue.subscribe((next, _paused, nextEngine) => { jobs = next; engine = nextEngine; });
+      queue.add([imageFile()]);
+      vi.advanceTimersByTime(30_000);
+      expect(engine).toBe("error");
+      expect(jobs[0]).toMatchObject({ status: "error", errorCode: "WORKER_START_TIMEOUT", recoverable: true });
+      queue.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
