@@ -22,6 +22,9 @@ const MIN_TRANSPARENT_PIXEL_RATIO: f32 = 0.25;
 const MAX_ALPHA_COMPOSITE_MEAN_DELTA: f32 = 1.25;
 const MAX_REDUCED_PALETTE_VISIBLE_OUTLIERS_PERCENT: u32 = 1;
 const VISIBLE_OUTLIER_DELTA: f32 = 2.0;
+const MAX_FLAT_PALETTE_MEAN_DELTA: f32 = 0.05;
+const MAX_FLAT_PALETTE_VISIBLE_OUTLIERS_PERCENT: u32 = 4;
+const MAX_FLAT_PALETTE_VISIBLE_DELTA: f32 = 16.0;
 const ALPHA_PALETTE_KMEANS_ROUNDS: usize = 16;
 // A very small perceptual curve gives the palette more precision where a
 // translucent colour is most visible over a bright surface. The same palette
@@ -254,6 +257,7 @@ struct AlphaPaletteDistortion {
     mean_delta: f32,
     visible_pixels: u32,
     visible_outliers: u32,
+    max_visible_delta: f32,
     preserves_transparent_pixels: bool,
 }
 
@@ -577,6 +581,7 @@ fn alpha_palette_distortion(
     let mut total_delta = 0.0_f32;
     let mut visible_pixels = 0_u32;
     let mut visible_outliers = 0_u32;
+    let mut max_visible_delta = 0.0_f32;
     let mut preserves_transparent_pixels = true;
     for (pixel, &index) in reference.pixels().zip(indices) {
         let candidate = palette[index as usize];
@@ -603,12 +608,16 @@ fn alpha_palette_distortion(
         if pixel[3] != 0 && worst_background_delta > VISIBLE_OUTLIER_DELTA {
             visible_outliers += 1;
         }
+        if pixel[3] != 0 {
+            max_visible_delta = max_visible_delta.max(worst_background_delta);
+        }
     }
     AlphaPaletteDistortion {
         mean_delta: total_delta
             / (reference.width().saturating_mul(reference.height()).max(1) * 6) as f32,
         visible_pixels,
         visible_outliers,
+        max_visible_delta,
         preserves_transparent_pixels,
     }
 }
@@ -617,11 +626,21 @@ fn is_alpha_palette_quality_acceptable(
     distortion: &AlphaPaletteDistortion,
     palette_size: usize,
 ) -> bool {
+    // Sparse flat logos can have mild antialiased edge errors even when the
+    // visible result is close; cap their worst pixel as well as their average.
+    let reduced_palette_ok = if palette_size == 20 {
+        distortion.mean_delta <= MAX_FLAT_PALETTE_MEAN_DELTA
+            && distortion.max_visible_delta <= MAX_FLAT_PALETTE_VISIBLE_DELTA
+            && distortion.visible_outliers * 100
+                <= distortion.visible_pixels * MAX_FLAT_PALETTE_VISIBLE_OUTLIERS_PERCENT
+    } else {
+        palette_size == PALETTE_COLORS as usize
+            || distortion.visible_outliers * 100
+                <= distortion.visible_pixels * MAX_REDUCED_PALETTE_VISIBLE_OUTLIERS_PERCENT
+    };
     distortion.preserves_transparent_pixels
         && distortion.mean_delta <= MAX_ALPHA_COMPOSITE_MEAN_DELTA
-        && (palette_size == PALETTE_COLORS as usize
-            || distortion.visible_outliers * 100
-                <= distortion.visible_pixels * MAX_REDUCED_PALETTE_VISIBLE_OUTLIERS_PERCENT)
+        && reduced_palette_ok
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1409,6 +1428,32 @@ mod tests {
             &alpha_palette_distortion(&reference, &palette, &indices),
             256
         ));
+    }
+
+    #[test]
+    fn flat_alpha_logo_allows_small_edge_errors_but_rejects_strong_outliers() {
+        let reference = RgbaImage::from_fn(100, 100, |x, _| {
+            if x < 12 {
+                image::Rgba([100, 100, 100, 255])
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            }
+        });
+        let mut indices = reference
+            .pixels()
+            .map(|pixel| if pixel[3] == 0 { 0 } else { 1 })
+            .collect::<Vec<_>>();
+        for index in indices.iter_mut().filter(|index| **index == 1).take(40) {
+            *index = 2;
+        }
+        let mut palette = [[0, 0, 0, 0], [100, 100, 100, 255], [110, 110, 110, 255]];
+        let small_edge_error = alpha_palette_distortion(&reference, &palette, &indices);
+        assert!(is_alpha_palette_quality_acceptable(&small_edge_error, 20));
+        assert!(!is_alpha_palette_quality_acceptable(&small_edge_error, 96));
+
+        palette[2] = [130, 130, 130, 255];
+        let strong_edge_error = alpha_palette_distortion(&reference, &palette, &indices);
+        assert!(!is_alpha_palette_quality_acceptable(&strong_edge_error, 20));
     }
 
     #[test]
