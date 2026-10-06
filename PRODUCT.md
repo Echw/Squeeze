@@ -16,8 +16,9 @@ Squeeze lokalnie analizuje JPEG i PNG, dobiera bezpieczną strategię kompresji,
 
 ## Positioning
 
-Silnik działa w przeglądarce i wykonuje jeden ustalony przebieg, dobrany po
-lekkiej analizie obrazu. Metryki percepcyjne służą tylko benchmarkom i testom.
+Silnik działa w przeglądarce i daje jeden wynik na plik. Dla JPEG jakość jest
+dobierana na kilku małych kafelkach obrazu metryką SSIMULACRA2, a cały obraz
+jest kodowany raz; PNG dostaje jedną paletę dobraną przez kwantyzer.
 Obrazy, ich nazwy i piksele nie opuszczają urządzenia.
 
 ## Capabilities and Constraints
@@ -25,12 +26,18 @@ Obrazy, ich nazwy i piksele nie opuszczają urządzenia.
 - Wejście: JPEG i PNG, maksymalnie 24 MP i 100 MB na plik.
 - JPEG pozostaje JPEG, PNG pozostaje PNG; nie ma konwersji WebP ani opcji
   eksperckich. Migracja usuwa wcześniejsze ustawienia, które mogłyby je przywrócić.
-- Rust/WASM pozostaje wspólnym silnikiem dla JPEG i PNG w jednym Workerze.
-- Automatyka wybiera jedną paletę przed kodowaniem kwalifikującego się PNG;
-  grafika bez alpha używa Quantette, a prosta grafika z alpha może użyć palety
-  RGBA. Wynik indeksowany otrzymuje jedną bezstratną finalizację OxiPNG.
-- PNG 16-bit oraz PNG z osadzonym zarządzaniem kolorem lub EXIF korzystają z
-  bezstratnej ścieżki. Wynik większy od wejścia jest odrzucany.
+- Rust/WASM pozostaje wspólnym silnikiem dla JPEG i PNG w jednym Workerze;
+  Jpegli działa jako osobny moduł WASM wywoływany przez ten sam Worker.
+- JPEG: próg jakości jest wspólny dla wszystkich zdjęć, wyższy dla gładkich.
+  Bezstratnie przepisany JPEG wygrywa, gdy kodowanie stratne nie daje
+  wyraźnej oszczędności. Wynik stratny zachowuje profil Display P3; sRGB jest
+  pomijany, a szersze przestrzenie i CMYK są konwertowane do sRGB.
+- PNG: każdy 8-bitowy PNG dostaje jedną paletę z portu libimagequant 2.4.1
+  (BSD) z ditheringiem tylko w płaskich obszarach. Obraz z najwyżej 256
+  kolorami RGBA zachowuje je dokładnie, chyba że mniejsza paleta osiąga cel
+  jakości. Profil i metadane wyświetlania
+  przechodzą do wyniku. PNG 16-bit pozostaje bezstratny. Wynik większy od
+  wejścia jest odrzucany.
 - AVIF i przetwarzanie serwerowe nie należą do obecnego zakresu.
 
 ## Brand Commitments

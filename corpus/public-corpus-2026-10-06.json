@@ -1,0 +1,255 @@
+{
+ "version": 1,
+ "purpose": "Second public corpus for the 2026-10-06 engine comparison; public or locally generated files only.",
+ "items": [
+  {
+   "path": "jpeg/web-people-00.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/a/a2/04-09-12-Schaupfl%C3%BCgen-Fahrenwalde-RalfR-IMG_1232.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+   "page": "https://commons.wikimedia.org/wiki/File:04-09-12-Schaupfl%C3%BCgen-Fahrenwalde-RalfR-IMG_1232.jpg",
+   "license": "CC BY-SA 2.5"
+  },
+  {
+   "path": "jpeg/web-people-01.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/7c/2015_K%C5%82odzko%2C_ul._Dusznicka%2C_myjnia_samochodowa_02.jpg/1920px-2015_K%C5%82odzko%2C_ul._Dusznicka%2C_myjnia_samochodowa_02.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2015_K%C5%82odzko,_ul._Dusznicka,_myjnia_samochodowa_02.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-02.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/5/52/20151030_Syrians_and_Iraq_refugees_arrive_at_Skala_Sykamias_Lesvos_Greece_2.jpg/1920px-20151030_Syrians_and_Iraq_refugees_arrive_at_Skala_Sykamias_Lesvos_Greece_2.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:20151030_Syrians_and_Iraq_refugees_arrive_at_Skala_Sykamias_Lesvos_Greece_2.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-03.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0e/20160805_-_Inle_Lake%2C_Myanmar_-_8453_DxO.jpg/1920px-20160805_-_Inle_Lake%2C_Myanmar_-_8453_DxO.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:20160805_-_Inle_Lake,_Myanmar_-_8453_DxO.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-04.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b0/20160805_Inle_Lake_7434.jpg/1920px-20160805_Inle_Lake_7434.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:20160805_Inle_Lake_7434.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-05.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/20180602_FIFA_Friendly_Match_Austria_vs._Germany_Rainer_Pariasek_850_0540.jpg/1920px-20180602_FIFA_Friendly_Match_Austria_vs._Germany_Rainer_Pariasek_850_0540.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:20180602_FIFA_Friendly_Match_Austria_vs._Germany_Rainer_Pariasek_850_0540.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-06.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/e2/A_Tibetan_Pilgrim_Lighting_Ghee_Lamps.jpg/1920px-A_Tibetan_Pilgrim_Lighting_Ghee_Lamps.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:A_Tibetan_Pilgrim_Lighting_Ghee_Lamps.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-people-07.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/3/3f/A_bad_sales_day.jpg/1920px-A_bad_sales_day.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:A_bad_sales_day.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/cam-people-08.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/e/e9/A_girl_set_fire_to_cook_breakfast_by_using_a_coal-filled_clay_pot%3B_July_2014.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:A_girl_set_fire_to_cook_breakfast_by_using_a_coal-filled_clay_pot;_July_2014.jpg",
+   "license": "CC BY 2.0"
+  },
+  {
+   "path": "jpeg/cam-people-09.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/7/7d/A_man_and_his_donkey_on_the_way_back_from_the_field_in_Aswan%2C_Egypt_%28edited%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:A_man_and_his_donkey_on_the_way_back_from_the_field_in_Aswan,_Egypt_(edited).jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/cam-people-10.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/4/4a/A_smoky_day_at_the_Sugar_Bowl--Hupa.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:A_smoky_day_at_the_Sugar_Bowl--Hupa.jpg",
+   "license": "Public domain"
+  },
+  {
+   "path": "jpeg/web-architecture-11.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c8/07-17-2012_-_Emborio_-_Emporio_-_Santorini_-_Greece_-_11.jpg/1920px-07-17-2012_-_Emborio_-_Emporio_-_Santorini_-_Greece_-_11.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:07-17-2012_-_Emborio_-_Emporio_-_Santorini_-_Greece_-_11.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-architecture-12.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6a/2014_Scar_House_Reservoir_Dam.jpg/1920px-2014_Scar_House_Reservoir_Dam.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2014_Scar_House_Reservoir_Dam.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-architecture-13.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c7/2018_01_%28Blue%29_-_Chaouen.jpg/1920px-2018_01_%28Blue%29_-_Chaouen.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2018_01_(Blue)_-_Chaouen.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-architecture-14.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a3/Amboy_%28California%2C_USA%29_--_2012_--_4.jpg/1920px-Amboy_%28California%2C_USA%29_--_2012_--_4.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:Amboy_(California,_USA)_--_2012_--_4.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-architecture-15.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/81/Antwerp_Central_Station_full_size.jpg/1920px-Antwerp_Central_Station_full_size.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:Antwerp_Central_Station_full_size.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-architecture-16.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b3/Arabs_Baths_of_Alhama_de_Granada_in_Andalusia%2C_Spain.jpg/1920px-Arabs_Baths_of_Alhama_de_Granada_in_Andalusia%2C_Spain.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:Arabs_Baths_of_Alhama_de_Granada_in_Andalusia,_Spain.jpg",
+   "license": "CC BY 2.0"
+  },
+  {
+   "path": "jpeg/cam-architecture-17.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/e/e8/Atomium_sphere_%28DSCF1211%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:Atomium_sphere_(DSCF1211).jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/cam-architecture-18.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/7/70/Brazil_Bel%C3%A9m_Las_Docas_02.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:Brazil_Bel%C3%A9m_Las_Docas_02.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-19.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/96/01-%E0%B8%9E%E0%B8%A3%E0%B8%B0%E0%B8%97%E0%B8%B5%E0%B9%88%E0%B8%99%E0%B8%B1%E0%B9%88%E0%B8%87%E0%B8%84%E0%B8%B9%E0%B8%AB%E0%B8%B2%E0%B8%84%E0%B8%A4%E0%B8%AB%E0%B8%B2%E0%B8%AA%E0%B8%99%E0%B9%8C.jpg/1920px-01-%E0%B8%9E%E0%B8%A3%E0%B8%B0%E0%B8%97%E0%B8%B5%E0%B9%88%E0%B8%99%E0%B8%B1%E0%B9%88%E0%B8%87%E0%B8%84%E0%B8%B9%E0%B8%AB%E0%B8%B2%E0%B8%84%E0%B8%A4%E0%B8%AB%E0%B8%B2%E0%B8%AA%E0%B8%99%E0%B9%8C.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:01-%E0%B8%9E%E0%B8%A3%E0%B8%B0%E0%B8%97%E0%B8%B5%E0%B9%88%E0%B8%99%E0%B8%B1%E0%B9%88%E0%B8%87%E0%B8%84%E0%B8%B9%E0%B8%AB%E0%B8%B2%E0%B8%84%E0%B8%A4%E0%B8%AB%E0%B8%B2%E0%B8%AA%E0%B8%99%E0%B9%8C.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-20.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/1/1b/1_pano_cuiping_yangshuo_2016.jpg/1920px-1_pano_cuiping_yangshuo_2016.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:1_pano_cuiping_yangshuo_2016.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-21.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/71/20110419_Ani_North_Walls_Turkey_Panorama.jpg/1920px-20110419_Ani_North_Walls_Turkey_Panorama.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:20110419_Ani_North_Walls_Turkey_Panorama.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-22.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/61/2013_Cogden_Bridge.jpg/1920px-2013_Cogden_Bridge.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2013_Cogden_Bridge.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-23.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/ad/2013_Rainbow_over_Washfold.jpg/1920px-2013_Rainbow_over_Washfold.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2013_Rainbow_over_Washfold.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-landscapes-24.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b1/2014_Track_on_Fremington_Edge.jpg/1920px-2014_Track_on_Fremington_Edge.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:2014_Track_on_Fremington_Edge.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/cam-landscapes-25.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/f/f2/2015_Ribblehead_Viaduct_1.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:2015_Ribblehead_Viaduct_1.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/cam-landscapes-26.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/1/13/2015_Swaledale_from_Kisdon_Hill.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "page": "https://commons.wikimedia.org/wiki/File:2015_Swaledale_from_Kisdon_Hill.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-animals-27.jpg",
+   "source": "https://upload.wikimedia.org/wikipedia/commons/f/f0/Ctenophora_edited.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail_unscaled",
+   "page": "https://commons.wikimedia.org/wiki/File:Ctenophora_edited.jpg",
+   "license": "CC BY-SA 3.0"
+  },
+  {
+   "path": "jpeg/web-animals-28.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/df/Esponja_%28Scalarispongia_scalaris%29%2C_%C4%8Airkewwa%2C_Malta%2C_Malta%2C_2021-08-24%2C_DD_31.jpg/1920px-Esponja_%28Scalarispongia_scalaris%29%2C_%C4%8Airkewwa%2C_Malta%2C_Malta%2C_2021-08-24%2C_DD_31.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:Esponja_(Scalarispongia_scalaris),_%C4%8Airkewwa,_Malta,_Malta,_2021-08-24,_DD_31.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/web-animals-29.jpg",
+   "source": "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Liospiriferina_rostrata_Noir.jpg/1920px-Liospiriferina_rostrata_Noir.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "page": "https://commons.wikimedia.org/wiki/File:Liospiriferina_rostrata_Noir.jpg",
+   "license": "CC BY-SA 4.0"
+  },
+  {
+   "path": "jpeg/q75-architecture-17.jpg",
+   "derivedFrom": "jpeg/cam-architecture-17.jpg",
+   "recipe": "Pillow: resize to 2000 px width (Lanczos), save quality=75, 4:2:0"
+  },
+  {
+   "path": "jpeg/q75-landscapes-25.jpg",
+   "derivedFrom": "jpeg/cam-landscapes-25.jpg",
+   "recipe": "Pillow: resize to 2000 px width (Lanczos), save quality=75, 4:2:0"
+  },
+  {
+   "path": "jpeg/q75-people-09.jpg",
+   "derivedFrom": "jpeg/cam-people-09.jpg",
+   "recipe": "Pillow: resize to 2000 px width (Lanczos), save quality=75, 4:2:0"
+  },
+  {
+   "path": "jpeg/q75-people-08.jpg",
+   "derivedFrom": "jpeg/cam-people-08.jpg",
+   "recipe": "Pillow: resize to 2000 px width (Lanczos), save quality=75, 4:2:0"
+  },
+  {
+   "path": "jpeg/text-screenshot444.jpg",
+   "derivedFrom": "png/screenshot.png of public-corpus-2026-09-15",
+   "recipe": "Pillow: quality=90, 4:4:4"
+  },
+  {
+   "path": "jpeg/cmyk-people.jpg",
+   "derivedFrom": "jpeg/web-people-03.jpg",
+   "recipe": "Pillow: convert('CMYK'), quality=90, no profile"
+  },
+  {
+   "path": "icc/*.jpg",
+   "derivedFrom": "jpeg/web-people-03.jpg resized to 960x636",
+   "recipe": "ImageCms transforms to macOS Generic CMYK, Generic Gray Gamma 2.2 and Display P3 profiles, embedded; plus sRGB 4:4:4 and grey without profile"
+  },
+  {
+   "path": "png/photo-kodim03.png",
+   "source": "https://r0k.us/graphics/kodak/kodak/kodim03.png",
+   "license": "Kodak Lossless True Color Image Suite, released for unrestricted use"
+  },
+  {
+   "path": "png/photo-kodim05.png",
+   "source": "https://r0k.us/graphics/kodak/kodak/kodim05.png",
+   "license": "Kodak Lossless True Color Image Suite, released for unrestricted use"
+  },
+  {
+   "path": "png/photo-kodim15.png",
+   "source": "https://r0k.us/graphics/kodak/kodak/kodim15.png",
+   "license": "Kodak Lossless True Color Image Suite, released for unrestricted use"
+  },
+  {
+   "path": "png/photo-kodim23.png",
+   "source": "https://r0k.us/graphics/kodak/kodak/kodim23.png",
+   "license": "Kodak Lossless True Color Image Suite, released for unrestricted use"
+  },
+  {
+   "path": "png/ui-*.png",
+   "recipe": "Playwright Chromium screenshots of locally generated HTML pages and the Squeeze app at 1x/2x; ui-dashboard-2x-macos-p3.png re-saved with the Display P3 profile and 144 dpi"
+  },
+  {
+   "path": "png/alpha-product-cutout.png",
+   "derivedFrom": "jpeg/web-animals-29.jpg",
+   "recipe": "resize to 1200x1031, soft elliptical alpha mask (Gaussian blur 12 px)"
+  },
+  {
+   "path": "png/photo-large-24mp.png",
+   "derivedFrom": "jpeg/cam-people-09.jpg",
+   "recipe": "resize to 6000x4000 (Lanczos), PNG with the source profile"
+  }
+ ]
+}

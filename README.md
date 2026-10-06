@@ -6,14 +6,23 @@ JPEG, PNG pozostaje PNG. Nazwy i piksele obrazów nie opuszczają urządzenia.
 ## Działanie
 
 - Jeden automatyczny przebieg na plik, bez profili i trybu eksperckiego.
-- JPEG: Jpegli WASM z jednym doborem jakości po lekkiej analizie obrazu;
-  zachowuje JPEG, wymiary, widoczny obrót i profil ICC. Gdy przeglądarka nie
-  udostępnia wymaganych prymitywów, wraca do bezpiecznej ścieżki MozJPEG.
-- PNG: grafiki mogą otrzymać jedną paletę dobraną przed zapisem, również z
-  przezroczystością. Proste obrazy z alpha mogą użyć palety bezstratnej, a
-  wybrane grafiki z dużym przezroczystym tłem palety z kontrolowaną zmianą
-  kolorów. Wynik indeksowany przechodzi jeden bezstratny etap OxiPNG w WASM.
-  PNG 16-bit i pliki z wrażliwymi informacjami o kolorze pozostają bezstratne.
+- JPEG: Jpegli WASM. Jakość jest dobierana na kilku kafelkach obrazu tak, by
+  najsłabszy z nich osiągnął ustalony próg SSIMULACRA2 (wyższy dla gładkich
+  zdjęć); cały obraz jest kodowany raz, przy wybranej jakości. Zdjęcia
+  zachowują 4:2:0, zrzuty ekranu i grafiki 4:4:4, skala szarości pozostaje
+  jednokanałowa. Profil Display P3 jest zachowywany, sRGB usuwany jako zbędny,
+  a szersze przestrzenie (Adobe RGB, ProPhoto) i CMYK przeglądarka konwertuje
+  do sRGB. Równolegle powstaje bezstratnie przepisany JPEG (te same
+  współczynniki, lepsze kodowanie); wygrywa, gdy wersja stratna nie jest
+  wyraźnie mniejsza. Gdy przeglądarka nie udostępnia wymaganych prymitywów,
+  działa zapasowa ścieżka MozJPEG.
+- PNG: jedna paleta z portu libimagequant 2.4.1 (BSD) z ditheringiem
+  ograniczonym do płaskich obszarów — także dla zdjęć, zrzutów ekranu i obrazów
+  z przezroczystością. Obraz z najwyżej 256 kolorami RGBA zachowuje je
+  dokładnie, chyba że mniejsza paleta osiąga cel jakości. Profile i metadane wyświetlania (ICC, sRGB, gAMA, cHRM,
+  pHYs, eXIf) przechodzą do wyniku. OxiPNG w rdzeniu Rust wybiera głębię,
+  filtry i kompresję; małe pliki dostają Zopfli. PNG 16-bit pozostaje
+  bezstratny.
 - Wynik większy od wejścia jest odrzucany. Aplikacja zwraca wtedy oryginał z
   komunikatem „Brak oszczędności w tym przebiegu”.
 - Jeden Worker wykonuje kolejkę kolejno, ograniczając użycie pamięci.
@@ -25,10 +34,13 @@ inne niż JPEG/PNG nie są przetwarzane.
 ## Uruchomienie
 
 Wymagane są Node.js `20.19+` (lub `>=22.12`), Rust `1.90+`, target
-`wasm32-unknown-unknown` i `wasm-bindgen-cli 0.2.128`.
+`wasm32-unknown-unknown`, komponent `llvm-tools`, `wasm-bindgen-cli 0.2.128`
+oraz Clang z celem WebAssembly (Xcode Command Line Tools na macOS, pakiet
+`clang` na Linuksie) do biblioteki libdeflate używanej przez OxiPNG.
 
 ```sh
 rustup target add wasm32-unknown-unknown
+rustup component add llvm-tools
 cargo install wasm-bindgen-cli --version 0.2.128 --locked
 npm ci
 npm run dev
@@ -60,7 +72,10 @@ cargo run -p optimizer-cli -- benchmark /tmp/squeeze-fixtures --warmup 1 --runs 
 cargo run -p optimizer-cli -- optimize photo.jpg --json
 ```
 
-Benchmark liczy metryki jakości wyłącznie poza codzienną ścieżką kompresji.
+Benchmark liczy pełne metryki jakości poza codzienną ścieżką kompresji; w
+aplikacji SSIMULACRA2 ocenia tylko kilka kafelków przy wyborze jakości JPEG.
+Aktualne porównanie z Tiny i poprzednią wersją opisuje
+[raport z 6 października](reports/compression-overhaul-2026-10-06.md).
 Format lokalnego corpusu i wymagania dla źródeł publicznych opisuje
 [corpus/README.md](corpus/README.md).
 
@@ -77,5 +92,8 @@ web/                     interfejs, kolejka, Workery i pobieranie wyników
 
 Kod Squeeze jest dostępny na licencji [MIT](LICENSE). Jpegli i jego wrapper
 mają licencję BSD-3-Clause, a połączone Highway Apache-2.0 lub BSD-3-Clause;
-pochodzenie artefaktu jest w [third_party/jpegli](third_party/jpegli). Projekt
-nie używa libimagequant ani zależności GPL.
+pochodzenie artefaktu jest w [third_party/jpegli](third_party/jpegli). Kwantyzer
+PNG jest portem libimagequant 2.4.1 na licencji BSD-2-Clause, ostatniej wersji
+przed zmianą na GPL; noty są w [third_party/libimagequant](third_party/libimagequant).
+OxiPNG ma licencję MIT, libdeflate MIT, a Zopfli Apache-2.0. Projekt nie używa
+zależności GPL.
