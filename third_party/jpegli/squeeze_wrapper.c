@@ -18,6 +18,8 @@ int decode(uint8_t *jpeg_in, int jpeg_in_size, int config_only, uint32_t *width,
 uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, size_t *size, int quality, int progressive_level, int optimize_coding,
         int adaptive_quantization, int standard_quant_tables, int fancy_downsampling, int dct_method);
 
+uint8_t* transcode(uint8_t *in, int in_size, size_t *size, int progressive_level);
+
 void error_exit(j_common_ptr info);
 
 #ifdef __cplusplus
@@ -316,7 +318,7 @@ uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, 
             jpegli_set_defaults(&cinfo);
             jpegli_set_colorspace(&cinfo, JCS_GRAYSCALE);
 
-            cinfo.raw_data_in = 1;
+            // Squeeze passes one byte per pixel as ordinary scanlines.
             cinfo.comp_info[0].h_samp_factor = 1, cinfo.comp_info[0].v_samp_factor = 1;
             break;
         case JCS_YCbCr:
@@ -413,10 +415,7 @@ uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, 
 
     jpegli_start_compress(&cinfo, 1);
 
-    if(colorspace == JCS_GRAYSCALE) {
-        h = DCTSIZE * cinfo.comp_info[0].v_samp_factor;
-        rows = (JSAMPROW *)malloc(sizeof(JSAMPROW) * h);
-    } else if(colorspace == JCS_YCbCr) {
+    if(colorspace == JCS_YCbCr) {
         y_h = DCTSIZE * cinfo.comp_info[Y].v_samp_factor;
         c_h = DCTSIZE * cinfo.comp_info[Cb].v_samp_factor;
 
@@ -460,13 +459,7 @@ uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, 
     stride = cinfo.image_width * cinfo.input_components;
 
     while(cinfo.next_scanline < cinfo.image_height) {
-        if(colorspace == JCS_GRAYSCALE) {
-            for(int i = 0; i < h; i++) {
-                rows[i] = &in[cinfo.next_scanline * stride + (stride * i)];
-            }
-
-            jpegli_write_raw_data(&cinfo, &rows, h);
-        } else if(colorspace == JCS_YCbCr) {
+        if(colorspace == JCS_YCbCr) {
             for(int i = 0; i < y_h; i++) {
                 y_rows[i] = &y_in[(cinfo.next_scanline * y_stride) + (y_stride * i)];
             }
@@ -484,9 +477,7 @@ uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, 
         }
     }
 
-    if(colorspace == JCS_GRAYSCALE) {
-        free(rows);
-    } else if(colorspace == JCS_YCbCr) {
+    if(colorspace == JCS_YCbCr) {
         free(y_rows);
         free(cb_rows);
         free(cr_rows);
@@ -495,5 +486,45 @@ uint8_t* encode(uint8_t *in, int width, int height, int colorspace, int chroma, 
     jpegli_finish_compress(&cinfo);
     jpegli_destroy_compress(&cinfo);
 
+    return out;
+}
+
+/*
+ * Losslessly rewrites a JPEG: the DCT coefficients and quantisation tables are
+ * copied, while Huffman tables are optimised and the scans become progressive.
+ * Markers (ICC, EXIF) are not copied; the caller adds the ones it keeps.
+ */
+uint8_t* transcode(uint8_t *in, int in_size, size_t *size, int progressive_level) {
+    struct jpeg_decompress_struct dinfo;
+    struct jpeg_error_mgr derr;
+    dinfo.err = jpegli_std_error(&derr);
+    dinfo.err->error_exit = error_exit;
+    jpegli_create_decompress(&dinfo);
+    jpegli_mem_src(&dinfo, in, in_size);
+    if(jpegli_read_header(&dinfo, 1) != JPEG_HEADER_OK) {
+        jpegli_destroy_decompress(&dinfo);
+        return 0;
+    }
+    jvirt_barray_ptr *coefficients = jpegli_read_coefficients(&dinfo);
+    if(!coefficients) {
+        jpegli_destroy_decompress(&dinfo);
+        return 0;
+    }
+
+    struct jpeg_compress_struct cinfo;
+    struct jpeg_error_mgr cerr;
+    cinfo.err = jpegli_std_error(&cerr);
+    cinfo.err->error_exit = error_exit;
+    jpegli_create_compress(&cinfo);
+    uint8_t* out = NULL;
+    jpegli_mem_dest(&cinfo, &out, size);
+    jpegli_copy_critical_parameters(&dinfo, &cinfo);
+    cinfo.optimize_coding = 1;
+    jpegli_set_progressive_level(&cinfo, progressive_level);
+    jpegli_write_coefficients(&cinfo, coefficients);
+    jpegli_finish_compress(&cinfo);
+    jpegli_destroy_compress(&cinfo);
+    jpegli_finish_decompress(&dinfo);
+    jpegli_destroy_decompress(&dinfo);
     return out;
 }

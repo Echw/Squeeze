@@ -1,4 +1,4 @@
-export const WORKER_API_VERSION = 5 as const;
+export const WORKER_API_VERSION = 6 as const;
 
 export type ProgressStage = "decoding" | "analyzing" | "compressing" | "finalizing";
 
@@ -35,8 +35,8 @@ export interface OptimizationReport {
 }
 
 export type WorkerRequest =
-  | { version: 5; type: "compress"; jobId: string; attempt: number; buffer: ArrayBuffer }
-  | { version: 5; type: "cancel"; jobId: string; attempt: number };
+  | { version: 6; type: "compress"; jobId: string; attempt: number; buffer: ArrayBuffer }
+  | { version: 6; type: "cancel"; jobId: string; attempt: number };
 
 export interface WorkerCapabilities {
   preserve: boolean;
@@ -44,11 +44,11 @@ export interface WorkerCapabilities {
 }
 
 export type WorkerResponse =
-  | { version: 5; type: "ready"; capabilities: WorkerCapabilities }
-  | { version: 5; type: "progress"; jobId: string; attempt: number; stage: ProgressStage }
-  | { version: 5; type: "complete"; jobId: string; attempt: number; result: OptimizationReport; buffer: ArrayBuffer }
-  | { version: 5; type: "error"; jobId: string; attempt: number; code: string; message: string; recoverable: boolean }
-  | { version: 5; type: "cancelled"; jobId: string; attempt: number };
+  | { version: 6; type: "ready"; capabilities: WorkerCapabilities }
+  | { version: 6; type: "progress"; jobId: string; attempt: number; stage: ProgressStage }
+  | { version: 6; type: "complete"; jobId: string; attempt: number; result: OptimizationReport; buffer: ArrayBuffer }
+  | { version: 6; type: "error"; jobId: string; attempt: number; code: string; message: string; recoverable: boolean }
+  | { version: 6; type: "cancelled"; jobId: string; attempt: number };
 
 export type JobStatus = "queued" | "processing" | "complete" | "error" | "cancelled";
 

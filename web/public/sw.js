@@ -1,5 +1,5 @@
 // Bump whenever the cached application or its compression assets change.
-const CACHE = "squeeze-static-v16";
+const CACHE = "squeeze-static-v18";
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {

@@ -1,4 +1,6 @@
 import type { OptimizationReport, ProgressStage } from "../types";
+import { insertSegments, orientationSegment, readJpegHeader, rgbProfileKind, type JpegHeader } from "./jpeg-header";
+import { FALLBACK_QUALITY, extractTile, sampleTiles, searchQuality } from "./jpeg-quality";
 
 interface JpegliExports {
   memory: WebAssembly.Memory;
@@ -20,26 +22,46 @@ interface JpegliExports {
     fancyDownsampling: number,
     dctMethod: number,
   ): number;
+  transcode(input: number, inputSize: number, size: number, progressive: number): number;
 }
 
-interface JpegliInstance {
-  exports: JpegliExports;
+/** Scores JPEG-encoded tiles against their RGBA pixels with SSIMULACRA2. */
+export interface TileScorer {
+  /** Prepares a tile once and returns its index. */
+  add_tile(rgba: Uint8Array, width: number, height: number): number;
+  score(index: number, jpeg: Uint8Array): number;
+  /** Releases the WebAssembly memory. */
+  free(): void;
 }
 
-let jpegliPromise: Promise<JpegliInstance> | undefined;
+type Chroma = "4:4:4" | "4:2:0" | "gray";
+
+/**
+ * A lossy result must be clearly smaller than the lossless rewrite; otherwise
+ * the lossless file keeps the source pixels for almost the same size.
+ */
+const MIN_LOSSY_GAIN = 0.9;
+const JCS_GRAYSCALE = 1;
+const JCS_RGB = 2;
+const CHROMA_CODE: Record<Chroma, number> = { "4:4:4": 0, "4:2:0": 2, gray: 0 };
+
+let jpegliPromise: Promise<JpegliExports> | undefined;
 
 export async function optimizeJpegWithJpegli(
   input: Uint8Array,
   reportProgress: (stage: ProgressStage) => void,
+  createScorer: () => TileScorer,
 ): Promise<{ report: OptimizationReport; output: ArrayBuffer }> {
-  const iccSegments = extractIccSegments(input);
-  if (!iccSegments) throw new Error("Invalid JPEG metadata.");
+  const header = readJpegHeader(input);
+  if (!header) throw new Error("Invalid JPEG metadata.");
+  const gray = header.components === 1;
+  const profile = colourProfilePlan(header, gray);
 
   const started = performance.now();
   reportProgress("decoding");
   const bitmap = await createImageBitmap(new Blob([toArrayBuffer(input)], { type: "image/jpeg" }), {
     imageOrientation: "from-image",
-    colorSpaceConversion: "none",
+    colorSpaceConversion: profile.convertToSrgb ? "default" : "none",
   });
   try {
     const width = bitmap.width;
@@ -51,10 +73,16 @@ export async function optimizeJpegWithJpegli(
 
     reportProgress("analyzing");
     const analysis = analyzeRgba(rgba, width, height);
-    const quality = selectJpegliQuality(analysis);
+    const chroma: Chroma = gray ? "gray" : analysis.kind === "screenshot" || analysis.kind === "graphic" ? "4:4:4" : "4:2:0";
+    const jpegli = await loadJpegli();
+    const quality = chooseQuality(jpegli, rgba, width, height, chroma, createScorer);
 
     reportProgress("compressing");
-    const candidate = injectIccSegments(encode(await loadJpegli(), rgba, width, height, quality), iccSegments);
+    const encoded = withJpegli(() => encode(jpegli, rgba, width, height, quality, chroma));
+    const lossy = profile.keep ? insertSegments(encoded, header.iccSegments) : encoded;
+    const lossless = transcodeLosslessly(jpegli, input, header);
+    const useLossless = lossless !== undefined && lossy.byteLength > lossless.byteLength * MIN_LOSSY_GAIN;
+    const candidate = useLossless ? lossless : lossy;
     await verifyJpeg(candidate, width, height);
     reportProgress("finalizing");
 
@@ -77,17 +105,17 @@ export async function optimizeJpegWithJpegli(
         savedBytes: input.byteLength - candidate.byteLength,
         savedPercent: (input.byteLength - candidate.byteLength) / input.byteLength * 100,
         strategy: {
-          encoder: "jpegli-wasm",
-          quality,
-          chromaSubsampling: "4:2:0",
+          encoder: useLossless ? "jpegli lossless" : "jpegli-wasm",
+          quality: useLossless ? null : quality,
+          chromaSubsampling: useLossless ? null : chroma,
           progressive: true,
           paletteColors: null,
-          lossless: false,
+          lossless: useLossless,
         },
         processingTimeMs: performance.now() - started,
         alreadyOptimized: false,
-        optimizerVersion: 2,
-        warnings: [],
+        optimizerVersion: 3,
+        warnings: useLossless ? ["Piksele zachowano bez zmian; przepisano tylko kodowanie JPEG."] : [],
         analysis,
       },
     };
@@ -101,23 +129,67 @@ export function isJpeg(input: Uint8Array): boolean {
 }
 
 /**
- * One measured quality choice. All candidates keep 4:2:0: across the public
- * photo corpus, 4:2:2 and 4:4:4 increased bytes and did not improve the
- * perceptual result enough to justify their cost.
+ * How the lossy path treats the embedded profile. The quality search compares
+ * raw pixel values, so they must be sRGB or close to it:
+ * - sRGB is what browsers assume, so its profile only costs bytes;
+ * - Display P3 (phone photos) is kept with its wide gamut;
+ * - wider RGB spaces such as Adobe RGB or ProPhoto, CMYK, and profiles that do
+ *   not match the output channels are converted to sRGB by the browser.
  */
-export function selectJpegliQuality(analysis: OptimizationReport["analysis"]): number {
-  const { edgeDensity, flatAreaRatio, noise } = analysis;
-
-  // Sparse, almost-flat photographs show banding first, so preserve more data.
-  if (flatAreaRatio >= 0.9 && noise < 0.02) return 83;
-  // Fine, low-noise detail benefits from a small quality lift.
-  if (edgeDensity >= 0.045 && noise < 0.32) return 74;
-  // Smooth areas intersected by distinct edges include buildings and text.
-  if (flatAreaRatio >= 0.62 && edgeDensity >= 0.02 && noise < 0.12) return 73;
-  return 68;
+function colourProfilePlan(header: JpegHeader, gray: boolean): { convertToSrgb: boolean; keep: boolean } {
+  if (!header.iccSegments.length) return { convertToSrgb: false, keep: false };
+  if (gray) {
+    const grayProfile = header.iccColorSpace === "GRAY";
+    return { convertToSrgb: !grayProfile, keep: grayProfile };
+  }
+  const kind = header.iccColorSpace === "RGB " ? rgbProfileKind(header.iccSegments) : undefined;
+  if (kind === "srgb") return { convertToSrgb: false, keep: false };
+  if (kind === "display-p3") return { convertToSrgb: false, keep: true };
+  return { convertToSrgb: true, keep: false };
 }
 
-async function loadJpegli(): Promise<JpegliInstance> {
+function chooseQuality(
+  jpegli: JpegliExports,
+  rgba: Uint8ClampedArray,
+  width: number,
+  height: number,
+  chroma: Chroma,
+  createScorer: () => TileScorer,
+): number {
+  const sample = sampleTiles(rgba, width, height);
+  if (!sample.tiles.length) return FALLBACK_QUALITY;
+  const scorer = createScorer();
+  try {
+    const tiles = sample.tiles.map((tile) => {
+      const pixels = extractTile(rgba, width, tile);
+      return { tile, pixels, index: scorer.add_tile(pixels, tile.size, tile.size) };
+    });
+    return searchQuality((quality) => Math.min(...tiles.map(({ tile, pixels, index }) => {
+      const jpeg = withJpegli(() => encode(jpegli, pixels, tile.size, tile.size, quality, chroma));
+      return scorer.score(index, jpeg);
+    })), sample.target);
+  } finally {
+    scorer.free();
+  }
+}
+
+/**
+ * Rewrites Huffman coding and scans without touching the coefficients. The
+ * pixels stay stored as in the source, so its orientation tag is kept.
+ */
+function transcodeLosslessly(jpegli: JpegliExports, input: Uint8Array, header: JpegHeader): Uint8Array | undefined {
+  try {
+    const transcoded = withJpegli(() => transcode(jpegli, input));
+    const orientation = header.orientation === 1 ? [] : [orientationSegment(header.orientation)];
+    return insertSegments(transcoded, [...orientation, ...header.iccSegments]);
+  } catch {
+    // Arithmetic coding, 12-bit and lossless JPEG are outside Jpegli's
+    // decoder; those files only take the lossy path.
+    return undefined;
+  }
+}
+
+async function loadJpegli(): Promise<JpegliExports> {
   jpegliPromise ??= (async () => {
     const module = await WebAssembly.compileStreaming(fetch(new URL("/wasm/jpegli.wasm", self.location.origin)));
     const wasi = {
@@ -130,74 +202,79 @@ async function loadJpegli(): Promise<JpegliInstance> {
     const instance = await WebAssembly.instantiate(module, { wasi_snapshot_preview1: wasi });
     const exports = instance.exports as unknown as JpegliExports;
     exports._initialize();
-    return { exports };
+    return exports;
   })();
   return jpegliPromise;
 }
 
-function encode(instance: JpegliInstance, rgba: Uint8ClampedArray, width: number, height: number, quality: number): Uint8Array {
-  const { exports } = instance;
-  const inputPointer = exports.malloc(rgba.byteLength);
-  const sizePointer = exports.malloc(4);
+/**
+ * A Jpegli error aborts inside WebAssembly without unwinding its stack or
+ * heap, so the instance is discarded and the next call loads a fresh one.
+ */
+function withJpegli<T>(operation: () => T): T {
   try {
-    new Uint8Array(exports.memory.buffer).set(rgba, inputPointer);
-    const outputPointer = exports.encode(
-      inputPointer, width, height,
-      2, // JCS_RGB; the wrapper accepts RGBA components.
-      2, // 4:2:0
-      sizePointer, quality,
-      2, // progressive
-      1, // optimized Huffman coding
-      1, // adaptive quantization
-      0, // Jpegli quantization tables
-      1, // high-quality downsampling
-      0,
-    );
-    const size = new DataView(exports.memory.buffer).getUint32(sizePointer, true);
-    if (!outputPointer || !size) throw new Error("Jpegli produced an empty JPEG.");
-    const output = new Uint8Array(exports.memory.buffer).slice(outputPointer, outputPointer + size);
-    exports.free(outputPointer);
-    return output;
-  } finally {
-    exports.free(sizePointer);
-    exports.free(inputPointer);
+    return operation();
+  } catch (error) {
+    jpegliPromise = undefined;
+    throw error;
   }
 }
 
-async function verifyJpeg(bytes: Uint8Array, width: number, height: number): Promise<void> {
-  const decoded = await createImageBitmap(new Blob([toArrayBuffer(bytes)], { type: "image/jpeg" }));
+function encode(jpegli: JpegliExports, rgba: Uint8Array | Uint8ClampedArray, width: number, height: number, quality: number, chroma: Chroma): Uint8Array {
+  const pixels = chroma === "gray" ? grayChannel(rgba, width * height) : rgba;
+  return callWithOutput(jpegli, pixels, (inputPointer, sizePointer) => jpegli.encode(
+    inputPointer, width, height,
+    chroma === "gray" ? JCS_GRAYSCALE : JCS_RGB, // the RGB path accepts RGBA components
+    CHROMA_CODE[chroma],
+    sizePointer, quality,
+    2, // progressive
+    1, // optimized Huffman coding
+    1, // adaptive quantization
+    0, // Jpegli quantization tables
+    1, // high-quality downsampling
+    0,
+  ));
+}
+
+function transcode(jpegli: JpegliExports, input: Uint8Array): Uint8Array {
+  return callWithOutput(jpegli, input, (inputPointer, sizePointer) =>
+    jpegli.transcode(inputPointer, input.byteLength, sizePointer, 2));
+}
+
+function callWithOutput(jpegli: JpegliExports, input: Uint8Array | Uint8ClampedArray, call: (inputPointer: number, sizePointer: number) => number): Uint8Array {
+  const inputPointer = jpegli.malloc(input.byteLength);
+  const sizePointer = jpegli.malloc(4);
   try {
-    if (decoded.width !== width || decoded.height !== height) throw new Error("Jpegli changed image dimensions.");
+    new Uint8Array(jpegli.memory.buffer).set(input, inputPointer);
+    const outputPointer = call(inputPointer, sizePointer);
+    const size = new DataView(jpegli.memory.buffer).getUint32(sizePointer, true);
+    if (!outputPointer || !size) throw new Error("Jpegli produced an empty JPEG.");
+    const output = new Uint8Array(jpegli.memory.buffer).slice(outputPointer, outputPointer + size);
+    jpegli.free(outputPointer);
+    return output;
+  } finally {
+    jpegli.free(sizePointer);
+    jpegli.free(inputPointer);
+  }
+}
+
+/** Greyscale JPEGs decode to equal RGB channels; the red one is kept. */
+function grayChannel(rgba: Uint8Array | Uint8ClampedArray, pixels: number): Uint8Array {
+  const gray = new Uint8Array(pixels);
+  for (let index = 0; index < pixels; index++) gray[index] = rgba[index * 4] ?? 0;
+  return gray;
+}
+
+/** The decoded size must match, turned as the source is displayed. */
+async function verifyJpeg(bytes: Uint8Array, width: number, height: number): Promise<void> {
+  const decoded = await createImageBitmap(new Blob([toArrayBuffer(bytes)], { type: "image/jpeg" }), { imageOrientation: "from-image" });
+  try {
+    if (decoded.width !== width || decoded.height !== height) {
+      throw new Error("Jpegli changed image dimensions.");
+    }
   } finally {
     decoded.close();
   }
-}
-
-function extractIccSegments(input: Uint8Array): Uint8Array[] | undefined {
-  const segments: Uint8Array[] = [];
-  for (let offset = 2; offset + 4 <= input.byteLength && input[offset] === 0xff;) {
-    const marker = input[offset + 1];
-    if (marker === undefined || marker === 0xda || marker === 0xd9) return segments;
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { offset += 2; continue; }
-    const length = ((input[offset + 2] ?? 0) << 8) | (input[offset + 3] ?? 0);
-    if (length < 2 || offset + 2 + length > input.byteLength) return undefined;
-    if (marker === 0xe2 && new TextDecoder().decode(input.slice(offset + 4, offset + 16)) === "ICC_PROFILE\0") {
-      segments.push(input.slice(offset, offset + 2 + length));
-    }
-    offset += 2 + length;
-  }
-  return undefined;
-}
-
-function injectIccSegments(jpeg: Uint8Array, iccSegments: readonly Uint8Array[]): Uint8Array {
-  if (!iccSegments.length) return jpeg;
-  const metadataSize = iccSegments.reduce((size, segment) => size + segment.byteLength, 0);
-  const output = new Uint8Array(jpeg.byteLength + metadataSize);
-  output.set(jpeg.slice(0, 2));
-  let offset = 2;
-  for (const segment of iccSegments) { output.set(segment, offset); offset += segment.byteLength; }
-  output.set(jpeg.slice(2), offset);
-  return output;
 }
 
 function analyzeRgba(pixels: Uint8ClampedArray, width: number, height: number): OptimizationReport["analysis"] {
@@ -245,7 +322,7 @@ function passthroughReport(size: number, width: number, height: number, analysis
     format: "jpeg", outputFormat: "jpeg", width, height, originalSize: size, optimizedSize: size,
     savedBytes: 0, savedPercent: 0,
     strategy: { encoder: "already-optimized", quality: null, chromaSubsampling: null, progressive: null, paletteColors: null, lossless: true },
-    processingTimeMs: performance.now() - started, alreadyOptimized: true, optimizerVersion: 2,
+    processingTimeMs: performance.now() - started, alreadyOptimized: true, optimizerVersion: 3,
     warnings: ["Brak oszczędności w tym przebiegu."], analysis,
   };
 }

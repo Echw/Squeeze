@@ -12,10 +12,7 @@ const wasmAssets = [
 ];
 
 const workerAsset = assets.find((asset) => /\/optimizer\.worker-[^/]+\.js$/.test(asset));
-if (!workerAsset
-  || !assets.some((asset) => /\/squoosh_oxipng_bg-[^/]+\.wasm$/.test(asset))) {
-  throw new Error("Offline manifest is missing a compression worker or OxiPNG WASM");
-}
+if (!workerAsset) throw new Error("Offline manifest is missing the compression worker");
 const workerSource = await readFile(join(dist, workerAsset.slice(1)), "utf8");
 if (/\bimport\s*\(/.test(workerSource)) throw new Error("Compression worker still loads a module dynamically");
 for (const asset of wasmAssets) await stat(join(dist, asset.slice(1)));
