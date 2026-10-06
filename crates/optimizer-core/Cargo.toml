@@ -7,13 +7,14 @@ rust-version.workspace = true
 
 [dependencies]
 butteraugli.workspace = true
-crc32fast.workspace = true
-flate2.workspace = true
+fast-ssim2.workspace = true
 image.workspace = true
 mozjpeg-rs.workspace = true
+oxipng.workspace = true
 png.workspace = true
-quantette.workspace = true
 rgb.workspace = true
 serde.workspace = true
-ssimulacra2.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+crc32fast.workspace = true

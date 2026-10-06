@@ -1,7 +1,9 @@
 use butteraugli::{ButteraugliParams, Img, butteraugli};
+use fast_ssim2::{
+    CompareContext, LinearRgbImage, Ssimulacra2Reference, compute_ssimulacra2, srgb_u8_to_linear,
+};
 use image::RgbaImage;
 use rgb::RGB8;
-use ssimulacra2::{ColorPrimaries, Rgb, TransferCharacteristic, compute_frame_ssimulacra2};
 
 use crate::types::OptimizeError;
 
@@ -25,24 +27,30 @@ pub(crate) fn ssimulacra2_score(
             / f64::from(width.saturating_mul(height).max(1));
         return Ok((100.0 - mean_delta * 100.0).clamp(0.0, 100.0));
     }
-    let source = Rgb::new(
-        normalized_rgb(reference),
-        width as usize,
-        height as usize,
-        TransferCharacteristic::SRGB,
-        ColorPrimaries::BT709,
-    )
-    .map_err(|error| OptimizeError::Metric(error.to_string()))?;
-    let distorted = Rgb::new(
-        normalized_rgb(candidate),
-        width as usize,
-        height as usize,
-        TransferCharacteristic::SRGB,
-        ColorPrimaries::BT709,
-    )
-    .map_err(|error| OptimizeError::Metric(error.to_string()))?;
-    compute_frame_ssimulacra2(source, distorted)
+    compute_ssimulacra2(linear_rgb(reference), linear_rgb(candidate))
         .map_err(|error| OptimizeError::Metric(error.to_string()))
+}
+
+/// A tile whose SSIMULACRA2 reference is computed once and compared with
+/// several candidates; it halves the cost of each comparison.
+pub(crate) struct TileReference {
+    reference: Ssimulacra2Reference,
+    context: CompareContext,
+}
+
+impl TileReference {
+    pub(crate) fn new(tile: &RgbaImage) -> Result<Self, OptimizeError> {
+        let reference = Ssimulacra2Reference::new(linear_rgb(tile))
+            .map_err(|error| OptimizeError::Metric(error.to_string()))?;
+        let context = reference.compare_context();
+        Ok(Self { reference, context })
+    }
+
+    pub(crate) fn score(&mut self, candidate: &RgbaImage) -> Result<f64, OptimizeError> {
+        self.reference
+            .compare_with(&mut self.context, linear_rgb(candidate))
+            .map_err(|error| OptimizeError::Metric(error.to_string()))
+    }
 }
 
 pub(crate) fn butteraugli_score(
@@ -84,14 +92,19 @@ fn ensure_dimensions(a: &RgbaImage, b: &RgbaImage) -> Result<(), OptimizeError> 
     Ok(())
 }
 
-fn normalized_rgb(image: &RgbaImage) -> Vec<[f32; 3]> {
-    image
+fn linear_rgb(image: &RgbaImage) -> LinearRgbImage {
+    let pixels = image
         .pixels()
         .map(|pixel| {
             let [r, g, b, _] = pixel.0;
-            [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0]
+            [
+                srgb_u8_to_linear(r),
+                srgb_u8_to_linear(g),
+                srgb_u8_to_linear(b),
+            ]
         })
-        .collect()
+        .collect();
+    LinearRgbImage::new(pixels, image.width() as usize, image.height() as usize)
 }
 
 fn rgb8(image: &RgbaImage) -> Vec<RGB8> {

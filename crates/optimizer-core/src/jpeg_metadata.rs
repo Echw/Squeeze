@@ -3,6 +3,8 @@ use crate::types::OptimizeError;
 #[derive(Default)]
 pub(crate) struct JpegMetadata {
     pub icc: Option<Vec<u8>>,
+    /// Colour components in the frame header: 1 grey, 3 YCbCr, 4 CMYK/YCCK.
+    pub components: u8,
 }
 
 pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
@@ -11,6 +13,7 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
     }
     let mut cursor = 2;
     let mut icc_parts: Vec<(u8, u8, Vec<u8>)> = Vec::new();
+    let mut components = 0;
     while cursor + 4 <= input.len() {
         if input[cursor] != 0xff {
             break;
@@ -30,6 +33,13 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
         let payload = &input[cursor + 2..cursor + length];
         if marker == 0xe2 && payload.starts_with(b"ICC_PROFILE\0") && payload.len() > 14 {
             icc_parts.push((payload[12], payload[13], payload[14..].to_vec()));
+        }
+        // SOF0–SOF15 except DHT (C4), JPG (C8) and DAC (CC).
+        if (0xc0..=0xcf).contains(&marker)
+            && !matches!(marker, 0xc4 | 0xc8 | 0xcc)
+            && payload.len() > 5
+        {
+            components = payload[5];
         }
         cursor += length;
     }
@@ -56,7 +66,7 @@ pub(crate) fn extract(input: &[u8]) -> Result<JpegMetadata, OptimizeError> {
         validate_icc(&bytes)?;
         Some(bytes)
     };
-    Ok(JpegMetadata { icc })
+    Ok(JpegMetadata { icc, components })
 }
 
 fn validate_icc(profile: &[u8]) -> Result<(), OptimizeError> {
@@ -68,4 +78,21 @@ fn validate_icc(profile: &[u8]) -> Result<(), OptimizeError> {
         return Err(OptimizeError::InvalidColorProfile);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_frame_component_count() {
+        let mut jpeg = vec![0xff, 0xd8];
+        // SOF2 with 4 components (CMYK), then the start of scan.
+        jpeg.extend_from_slice(&[0xff, 0xc2, 0x00, 0x14, 8, 0, 16, 0, 16, 4]);
+        jpeg.extend_from_slice(&[0; 12]);
+        jpeg.extend_from_slice(&[0xff, 0xda, 0x00, 0x02]);
+        let metadata = extract(&jpeg).unwrap();
+        assert_eq!(metadata.components, 4);
+        assert!(metadata.icc.is_none());
+    }
 }

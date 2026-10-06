@@ -25,6 +25,9 @@ const env = {
   PATH: `${cargoDirectory}${delimiter}${process.env.PATH ?? ""}`,
   ...(rustToolchain ? { RUSTUP_TOOLCHAIN: rustToolchain } : {}),
 };
+// OxiPNG links libdeflate, written in C. Clang compiles it for wasm32, but the
+// archive needs an LLVM archiver; rustup's `llvm-tools` component has one.
+env.AR_wasm32_unknown_unknown ??= llvmArchiver();
 const run = (command, args) => spawnSync(command, args, {
   cwd: root,
   stdio: "inherit",
@@ -43,6 +46,16 @@ if (existsSync(cargo) && existsSync(wasmBindgen)) {
 } else {
   console.warn("Nie znaleziono wasm-bindgen-cli; używam fallbacku wasm-pack.");
   result = run(wasmPack, ["build", join(root, "crates", "optimizer-wasm"), "--target", "web", "--out-dir", output, "--release"]);
+}
+
+function llvmArchiver() {
+  const rustc = join(cargoDirectory, `rustc${binaryExtension}`);
+  const info = (args) => spawnSync(existsSync(rustc) ? rustc : "rustc", args, { encoding: "utf8", env }).stdout?.trim() ?? "";
+  const host = info(["-vV"]).match(/^host: (.+)$/m)?.[1];
+  const archiver = host && join(info(["--print", "sysroot"]), "lib", "rustlib", host, "bin", `llvm-ar${binaryExtension}`);
+  if (archiver && existsSync(archiver)) return archiver;
+  console.warn("Nie znaleziono llvm-ar. Zainstaluj: rustup component add llvm-tools");
+  return undefined;
 }
 
 if (result.error?.code === "ENOENT") {

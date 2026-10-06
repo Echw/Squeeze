@@ -1,0 +1,4 @@
+# Jpegli's WebAssembly module already requires SIMD128, so the Rust module can
+# use it too; it roughly halves the JPEG quality search's metric time.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

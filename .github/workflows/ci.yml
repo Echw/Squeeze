@@ -16,7 +16,7 @@ jobs:
         with:
           toolchain: "1.90"
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools
       - uses: taiki-e/install-action@cargo-deny
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
@@ -38,6 +38,7 @@ jobs:
         with:
           toolchain: "1.90"
           targets: wasm32-unknown-unknown
+          components: llvm-tools
       - uses: taiki-e/install-action@wasm-pack
       - run: npm ci
       - run: npm run build:wasm

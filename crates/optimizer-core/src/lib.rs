@@ -1,4 +1,5 @@
 mod analysis;
+mod imagequant;
 mod jpeg;
 mod jpeg_metadata;
 mod metrics;
@@ -159,6 +160,41 @@ pub fn measure_quality(
         ssimulacra2: Some(metrics::ssimulacra2_score(&reference, &candidate)?),
         butteraugli: Some(metrics::butteraugli_score(&reference, &candidate)?),
     })
+}
+
+/// Scores JPEG-encoded tiles against their RGBA source with SSIMULACRA2. The
+/// browser Worker uses it on a few small tiles to choose the JPEG quality, so
+/// the full image is still encoded once. Each tile's reference is prepared
+/// once and reused for every candidate quality.
+#[derive(Default)]
+pub struct JpegTileScorer {
+    tiles: Vec<metrics::TileReference>,
+}
+
+impl JpegTileScorer {
+    /// Adds a tile and returns its index.
+    pub fn add_tile(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+    ) -> Result<usize, OptimizeError> {
+        let tile = image::RgbaImage::from_raw(width, height, rgba.to_vec())
+            .ok_or_else(|| OptimizeError::Metric("tile size does not match its pixels".into()))?;
+        self.tiles.push(metrics::TileReference::new(&tile)?);
+        Ok(self.tiles.len() - 1)
+    }
+
+    pub fn score(&mut self, index: usize, jpeg: &[u8]) -> Result<f64, OptimizeError> {
+        let tile = self
+            .tiles
+            .get_mut(index)
+            .ok_or_else(|| OptimizeError::Metric("unknown tile".into()))?;
+        let candidate = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg)
+            .map(DynamicImage::into_rgba8)
+            .map_err(|error| OptimizeError::Decode(error.to_string()))?;
+        tile.score(&candidate)
+    }
 }
 
 fn detect_format(input: &[u8]) -> Result<ImageFormat, OptimizeError> {

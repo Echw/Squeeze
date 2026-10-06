@@ -5,7 +5,7 @@ use optimizer_core::{
 };
 use wasm_bindgen::prelude::*;
 
-const WORKER_API_VERSION: u8 = 5;
+const WORKER_API_VERSION: u8 = 6;
 
 struct JsProgress<'a>(&'a Function);
 
@@ -93,6 +93,27 @@ pub fn optimize_image(
         report_json,
         bytes: result.output,
     })
+}
+
+/// Scores JPEG-encoded tiles for the Worker's JPEG quality search.
+#[wasm_bindgen]
+#[derive(Default)]
+pub struct JpegTileScorer(optimizer_core::JpegTileScorer);
+
+#[wasm_bindgen]
+impl JpegTileScorer {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn add_tile(&mut self, rgba: &[u8], width: u32, height: u32) -> Result<usize, JsValue> {
+        self.0.add_tile(rgba, width, height).map_err(map_error)
+    }
+
+    pub fn score(&mut self, index: usize, jpeg: &[u8]) -> Result<f64, JsValue> {
+        self.0.score(index, jpeg).map_err(map_error)
+    }
 }
 
 /// Diagnostic variant used only by the benchmark Worker. Its callback receives

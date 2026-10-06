@@ -17,6 +17,17 @@ pub(crate) fn optimize_jpeg(
 ) -> Result<OptimizationResult, OptimizeError> {
     check_cancelled(cancellation)?;
     let metadata = jpeg_metadata::extract(input)?;
+    if metadata.components == 4 {
+        // The decoder converts CMYK without its profile, so the colours would
+        // change; this fallback path returns the original instead.
+        return Ok(passthrough(
+            input,
+            width,
+            height,
+            analysis,
+            vec!["JPEG w CMYK pozostawiono bez zmian, aby nie zmienić kolorów.".into()],
+        ));
+    }
     let (quality, subsampling) = jpeg_parameters(&analysis);
     let rgb = rgba_to_rgb(&reference);
 
@@ -108,7 +119,13 @@ fn encode(
                 .max_alloc_bytes(limits.max_working_bytes as usize)
                 .max_icc_profile_bytes(4 * 1024 * 1024),
         );
-    if let Some(icc) = &metadata.icc {
+    // The output is YCbCr, so only an RGB profile still describes it. CMYK and
+    // grey profiles would make viewers misinterpret the colours.
+    if let Some(icc) = metadata
+        .icc
+        .as_ref()
+        .filter(|icc| icc.get(16..20) == Some(b"RGB "))
+    {
         encoder = encoder.icc_profile(icc.clone());
     }
     encoder
